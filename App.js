@@ -186,7 +186,7 @@ const translations = {
 // Web İkon & PWA Sabitleme (v2.10.7 - Emoji Solution)
 const WebIcon = ({ name, size, color, style }) => {
   if (Platform.OS !== 'web') {
-    return <WebIcon name={name} size={size} color={color} style={style} />;
+    return <Ionicons name={name} size={size} color={color} style={style} />;
   }
 
   // Web için Emoji Eşleşmeleri
@@ -1000,27 +1000,34 @@ const LiveLocationPanel = ({ user, onBack }) => {
   };
 
   const openInMaps = (lat, lng, name) => {
-    if (Platform.OS === 'web') {
-      const safeLat = parseFloat(lat);
-      const safeLng = parseFloat(lng);
-      const url = `https://www.google.com/maps/search/?api=1&query=${safeLat},${safeLng}`;
+    const safeLat = parseFloat(lat);
+    const safeLng = parseFloat(lng);
 
+    if (isNaN(safeLat) || isNaN(safeLng)) {
+      Alert.alert('Hata', 'Geçersiz konum verisi');
+      return;
+    }
+
+    const universalUrl = `https://www.google.com/maps/search/?api=1&query=${safeLat},${safeLng}`;
+
+    if (Platform.OS === 'web') {
       if (window.confirm(`Konum: ${safeLat}, ${safeLng}\nHaritada açmak istiyor musunuz?`)) {
-        window.open(url, '_blank');
+        window.open(universalUrl, '_blank');
       }
       return;
     }
 
-    const url = Platform.select({
-      ios: `maps:?q=${name}&ll=${lat},${lng}`,
-      android: `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(name)})`,
+    const schemeUrl = Platform.select({
+      ios: `maps:?q=${encodeURIComponent(name)}&ll=${safeLat},${safeLng}`,
+      android: `geo:${safeLat},${safeLng}?q=${safeLat},${safeLng}(${encodeURIComponent(name)})`,
     });
-    Linking.canOpenURL(url)
+
+    Linking.canOpenURL(schemeUrl)
       .then(supported => {
-        if (supported) return Linking.openURL(url);
-        return Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
+        if (supported) return Linking.openURL(schemeUrl);
+        return Linking.openURL(universalUrl);
       })
-      .catch(() => Alert.alert('Hata', 'Harita açılamadı'));
+      .catch(() => Linking.openURL(universalUrl));
   };
 
   const sortedLocations = [...locations].sort((a, b) => {

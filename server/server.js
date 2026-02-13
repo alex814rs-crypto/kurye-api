@@ -932,6 +932,9 @@ app.get('/api/couriers/locations', authenticateToken, async (req, res) => {
     const now = Date.now();
     const STALE_THRESHOLD = 5 * 60 * 1000; // 5 dakika
 
+    console.log(`[LOCATIONS DEBUG] Requestor: ${req.user.name} (${req.user.role}) Business: ${req.user.businessId}`);
+    console.log(`[LOCATIONS DEBUG] Total Map Size: ${courierLocations.size}`);
+
     courierLocations.forEach((loc, id) => {
       // İşletme filtresi (şef ve yönetici sadece kendi işletmesini görür)
       if ((req.user.role === 'chief' || req.user.role === 'manager') && loc.businessId !== req.user.businessId) return;
@@ -941,6 +944,7 @@ app.get('/api/couriers/locations', authenticateToken, async (req, res) => {
       locations.push({ ...loc, isStale });
     });
 
+    console.log(`[LOCATIONS DEBUG] Returned: ${locations.length}`);
     res.json({ success: true, data: locations, count: locations.length });
   } catch (err) {
     console.error('[LOCATION ERROR]', err.message);
