@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.16';
+const APP_VERSION = '2.10.17';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 

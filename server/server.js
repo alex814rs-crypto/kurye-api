@@ -524,8 +524,8 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     const courierIds = [...new Set(orders.filter(o => o.courierId).map(o => o.courierId.toString()))];
     const courierMap = {};
     if (courierIds.length > 0) {
-      const couriersData = await Courier.find({ _id: { $in: courierIds } }).select('name');
-      couriersData.forEach(c => { courierMap[c._id.toString()] = c.name; });
+      const couriersData = await Courier.find({ _id: { $in: courierIds } }).select('name username');
+      couriersData.forEach(c => { courierMap[c._id.toString()] = c.name || c.username; });
     }
 
     const enrichedOrders = orders.map(o => {
@@ -552,7 +552,7 @@ app.patch('/api/orders/:id/claim', authenticateToken, async (req, res) => {
       const currentCourier = await Courier.findById(order.courierId);
       return res.status(400).json({
         success: false,
-        message: `Bu sipariş zaten ${currentCourier ? currentCourier.name : 'başka bir kurye'} üzerinde`,
+        message: `Bu sipariş zaten ${currentCourier ? (currentCourier.name || currentCourier.username) : 'başka bir kurye'} üzerinde`,
       });
     }
 
@@ -561,11 +561,11 @@ app.patch('/api/orders/:id/claim', authenticateToken, async (req, res) => {
     await order.save();
 
     const courier = await Courier.findById(req.user.id);
-    console.log(`[ÜZERİNE ALMA] Sipariş ${order.orderNumber} -> ${courier ? courier.name : req.user.id}`);
+    console.log(`[ÜZERİNE ALMA] Sipariş ${order.orderNumber} -> ${courier ? (courier.name || courier.username) : req.user.id}`);
 
     const obj = order.toObject();
     obj.id = obj._id.toString();
-    obj.courierName = courier ? courier.name : null;
+    obj.courierName = courier ? (courier.name || courier.username) : null;
     obj.courierId = obj.courierId.toString();
 
     res.json({ success: true, data: obj, message: 'Sipariş üzerinize alındı' });
