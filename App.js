@@ -1075,6 +1075,8 @@ const LiveLocationPanel = ({ user, onBack }) => {
     return new Date(b.updatedAt) - new Date(a.updatedAt);
   });
 
+  const activeLocations = sortedLocations.filter(l => !l.isStale);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#E63946" />
