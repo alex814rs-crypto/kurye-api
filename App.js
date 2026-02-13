@@ -1949,6 +1949,14 @@ const MainApp = ({ user, onLogout }) => {
   };
 
   const deliverOrder = async (orderId) => {
+    if (Platform.OS === 'web') {
+      const confirm = window.confirm('Siparişi teslim etmek istiyor musunuz?');
+      if (confirm) {
+        completeDelivery(orderId);
+      }
+      return;
+    }
+
     Alert.alert(
       'Sipariş Teslimi',
       'Teslimat fotoğrafı çekmek ister misiniz?',

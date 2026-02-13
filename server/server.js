@@ -575,7 +575,9 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Sipariş bulunamadı' });
-    res.json({ success: true, data: order });
+    const obj = order.toObject();
+    obj.id = obj._id.toString();
+    res.json({ success: true, data: obj });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
