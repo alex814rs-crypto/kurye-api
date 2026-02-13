@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.19';
+const APP_VERSION = '2.10.20';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -1986,6 +1986,7 @@ const MainApp = ({ user, onLogout }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [team, setTeam] = useState([]);
   const [showTeam, setShowTeam] = useState(false);
+  const [showDelivered, setShowDelivered] = useState(false);
   const [stats, setStats] = useState({
     today: 0,
     thisWeek: 0,
@@ -2557,11 +2558,16 @@ const MainApp = ({ user, onLogout }) => {
 
         {completedOrders.length > 0 && (
           <View style={styles.section}>
-            <View style={styles.sectionHeader}>
+            <TouchableOpacity
+              style={styles.sectionHeader}
+              onPress={() => setShowDelivered(!showDelivered)}
+            >
               <WebIcon name="checkmark-done" size={24} color="#2A9D8F" />
               <Text style={[styles.sectionTitle, { color: theme.text }]}>{t.delivered} ({completedOrders.length})</Text>
-            </View>
-            {completedOrders.slice(0, 5).map(order => <OrderCard
+              <WebIcon name={showDelivered ? 'chevron-up' : 'chevron-down'} size={20} color="#666" style={{ marginLeft: 'auto' }} />
+            </TouchableOpacity>
+
+            {showDelivered && completedOrders.slice(0, 10).map(order => <OrderCard
               key={order.id}
               order={order}
               user={user}
