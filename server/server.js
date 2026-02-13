@@ -1356,7 +1356,43 @@ const startServer = async () => {
   });
 };
 
-startServer().catch(err => {
-  console.error('Sunucu başlatılamadı:', err);
-  process.exit(1);
+// ============= STARTUP & ERROR HANDLING =============
+
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception:', err);
 });
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+const startServer = async () => {
+  try {
+    await connectDB();
+    await loadSettings();
+
+    const server = app.listen(PORT, () => {
+      console.log(`
+╔════════════════════════════════════════════════════════════╗
+║                   KURYE APP SERVER                         ║
+╠════════════════════════════════════════════════════════════╣
+║   ✓ Status: Online                                         ║
+║   ✓ Port: ${PORT}                                          ║
+║   ✓ Environment: ${process.env.NODE_ENV || 'development'}  ║
+║   ✓ Database: Connected                                    ║
+╚════════════════════════════════════════════════════════════╝
+      `);
+    });
+
+    server.on('error', (err) => {
+      console.error('[SERVER ERROR] Failed to start:', err);
+      process.exit(1);
+    });
+
+  } catch (error) {
+    console.error('[STARTUP ERROR]:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
