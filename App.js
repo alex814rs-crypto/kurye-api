@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.17';
+const APP_VERSION = '2.10.18';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -1084,11 +1084,22 @@ const LiveLocationPanel = ({ user, onBack }) => {
       <View style={[styles.header, { backgroundColor: '#E63946' }]}>
         <View style={styles.headerTop}>
           <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <WebIcon name="arrow-back" size={24} color="#fff" />
-            <Text style={[styles.headerTitle, { marginLeft: 10 }]}>Canlı Konum Takibi</Text>
+            <WebIcon name="chevron-back" size={28} color="#fff" />
+            <Text style={[styles.headerTitle, { marginLeft: 4 }]}>Canlı Konum Takibi</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => { setLoading(true); fetchLocations(); }} style={{ padding: 8 }}>
-            <WebIcon name="refresh" size={24} color="#fff" />
+          <TouchableOpacity
+            onPress={() => { setLoading(true); fetchData(); }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: '#fff',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 20
+            }}
+          >
+            <WebIcon name="refresh" size={16} color="#E63946" />
+            <Text style={{ color: '#E63946', fontWeight: 'bold', marginLeft: 6, fontSize: 12 }}>GÜNCELLE</Text>
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 12, gap: 12 }}>
