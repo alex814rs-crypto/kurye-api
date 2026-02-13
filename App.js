@@ -27,6 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
+const APP_VERSION = '2.10.13';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -541,7 +542,7 @@ const AdminPanel = ({ user, onLogout }) => {
         <View style={styles.headerTop}>
           <View>
             <Text style={styles.headerTitle}>Yönetici Paneli</Text>
-            <Text style={styles.headerSubtitle}>Hoşgeldin, {user.username}</Text>
+            <Text style={styles.headerSubtitle}>Hoşgeldin, {user.username} (v{APP_VERSION})</Text>
           </View>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
             <WebIcon name="log-out" size={24} color="#fff" />
@@ -1117,9 +1118,6 @@ const LiveLocationPanel = ({ user, onBack }) => {
                 <View style={styles.sectionHeader}>
                   <WebIcon name="pulse" size={22} color="#4ADE80" />
                   <Text style={styles.sectionTitle}>Aktif Kuryeler ({activeLocations.length})</Text>
-                  <TouchableOpacity onPress={startLocationTracking} style={{ marginLeft: 'auto', backgroundColor: '#E63946', padding: 5, borderRadius: 5 }}>
-                    <Text style={{ color: '#fff', fontSize: 10 }}>Konumu Zorla</Text>
-                  </TouchableOpacity>
                 </View>
                 {sortedLocations.map(loc => (
                   <TouchableOpacity
@@ -1791,7 +1789,9 @@ const LoginScreen = ({ onLogin }) => {
               )}
             </TouchableOpacity>
 
-            <Text style={{ textAlign: 'center', marginTop: 30, color: '#ccc', fontSize: 10 }}>v2.10.13 - Navigation Fix Final</Text>
+            <View style={{ alignItems: 'center', marginTop: 20 }}>
+              <Text style={{ color: '#999', fontSize: 12 }}>v{APP_VERSION}</Text>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -2420,12 +2420,17 @@ const MainApp = ({ user, onLogout }) => {
       <View style={[styles.header, { backgroundColor: theme.headerBg }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.headerTitle}>{t.appName}</Text>
-            <Text style={styles.headerSubtitle}>{user.businessName}</Text>
+            <Text style={styles.headerTitle}>{user.role === 'manager' ? 'Ekip Paneli' : user.role === 'chief' ? 'Şef Paneli' : 'Kurye Paneli'}</Text>
+            <Text style={styles.headerSubtitle}>{user.name} (v{APP_VERSION})</Text>
           </View>
-          <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-            <WebIcon name="log-out" size={24} color="#fff" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity onPress={startLocationTracking} style={{ padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 }}>
+              <WebIcon name="navigate" size={20} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
+              <WebIcon name="log-out" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.statsContainer}>
