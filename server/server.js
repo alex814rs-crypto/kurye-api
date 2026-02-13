@@ -1341,31 +1341,40 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const startServer = async () => {
-  try {
-    await connectDB();
-    await loadSettings();
-
-    const server = app.listen(PORT, () => {
-      console.log(`
+  // 1. Önce sunucuyu başlat (Railway Health Check için)
+  const server = app.listen(PORT, () => {
+    console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                   KURYE APP SERVER                         ║
 ╠════════════════════════════════════════════════════════════╣
-║   ✓ Status: Online                                         ║
+║   ✓ Status: Online (Listening)                             ║
 ║   ✓ Port: ${PORT}                                          ║
 ║   ✓ Environment: ${process.env.NODE_ENV || 'development'}  ║
-║   ✓ Database: Connected                                    ║
 ╚════════════════════════════════════════════════════════════╝
       `);
-    });
+  });
 
-    server.on('error', (err) => {
-      console.error('[SERVER ERROR] Failed to start:', err);
-      process.exit(1);
-    });
+  server.on('error', (err) => {
+    console.error('[SERVER ERROR] Failed to start:', err);
+    // Port hatası kritik olabilir, ama yeniden başlatmayı platforma bırakalım
+  });
+
+  // 2. Sonra Veritabanına Bağlan
+  try {
+    console.log('[STARTUP] Veritabanına bağlanılıyor...');
+    await connectDB();
+    console.log('[STARTUP] Veritabanı bağlantısı başarılı.');
+
+    await loadSettings();
+    console.log('[STARTUP] Ayarlar yüklendi.');
 
   } catch (error) {
-    console.error('[STARTUP ERROR]:', error);
-    process.exit(1);
+    console.error('================================================');
+    console.error('[STARTUP ERROR] Kritik servisler başlatılamadı!');
+    console.error('Hata Detayı:', error.message);
+    console.error('NOT: Sunucu açık kalacak ancak API yanıt vermeyebilir.');
+    console.error('================================================');
+    // process.exit(1) yapmıyoruz, sunucu logları görülebilsin diye açık kalsın
   }
 };
 
