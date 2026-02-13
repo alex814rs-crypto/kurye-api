@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.20';
+const APP_VERSION = '2.10.21';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -519,6 +519,15 @@ const PWAInstallGuide = () => {
 const AdminPanel = ({ user, onLogout }) => {
   const [currentScreen, setCurrentScreen] = useState('main');
 
+  // Refresh state moved to inside component or removed if duplicate
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    // Admin panelinde yenilenecek özel bir veri şimdilik yok ama simülasyon yapalım
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
   if (currentScreen === 'settings') {
     return <AdminSettingsScreen onBack={() => setCurrentScreen('main')} />;
   }
@@ -553,7 +562,12 @@ const AdminPanel = ({ user, onLogout }) => {
         </View>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2A9D8F']} tintColor="#2A9D8F" />
+        }
+      >
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Yönetim Araçları</Text>
 
@@ -2479,6 +2493,26 @@ const MainApp = ({ user, onLogout }) => {
               <WebIcon name="log-out" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            onPress={onRefresh}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: 'rgba(255,255,255,0.2)',
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 20,
+              alignSelf: 'flex-start',
+              marginLeft: 20,
+              marginBottom: 10
+            }}
+          >
+            <WebIcon name="refresh" size={14} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold', marginLeft: 6 }}>
+              {refreshing ? 'Yenileniyor...' : 'Yenile'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.statsContainer}>
