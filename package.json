@@ -15,6 +15,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "axios": "^1.6.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
@@ -36,15 +37,15 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.10.1",
+    "node-fetch": "^2.7.0",
     "react": "19.1.0",
     "react-dom": "^19.1.0",
     "react-native": "0.81.5",
-    "react-native-web": "^0.21.2",
-    "axios": "^1.6.0",
-    "node-fetch": "^2.7.0"
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "babel-preset-expo": "^54.0.10",
     "concurrently": "^9.2.1"
   },
   "engines": {
