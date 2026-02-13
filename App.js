@@ -408,9 +408,9 @@ const App = () => {
     );
   }
 
-  const appContent = !isLoggedIn ? (
+  const appContent = (!isLoggedIn || !user) ? (
     <LoginScreen onLogin={(userData) => { setUser(userData); setIsLoggedIn(true); }} />
-  ) : user && (user.role === 'admin' || user.role === 'manager') ? (
+  ) : (user.role === 'admin' || user.role === 'manager') ? (
     <AdminPanel user={user} onLogout={handleLogout} />
   ) : (
     <MainApp user={user} onLogout={handleLogout} />
@@ -1747,7 +1747,7 @@ const LoginScreen = ({ onLogin }) => {
               )}
             </TouchableOpacity>
 
-            <Text style={{ textAlign: 'center', marginTop: 30, color: '#ccc', fontSize: 10 }}>v2.10.10 - Stabilizer Fix (Web Debug)</Text>
+            <Text style={{ textAlign: 'center', marginTop: 30, color: '#ccc', fontSize: 10 }}>v2.10.13 - Navigation Fix Final</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -1755,8 +1755,165 @@ const LoginScreen = ({ onLogin }) => {
   );
 };
 
+
+
+// Merkezi Harita Açma Fonksiyonu - ULTRA SAFE MODE (Global Scope)
+const openMap = (latitude, longitude, address, label) => {
+  const lat = parseFloat(latitude);
+  const lng = parseFloat(longitude);
+  const isValidLocation = !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0 && lat > -90 && lat < 90 && lng > -180 && lng < 180;
+
+  console.log('[NAV DEBUG]', { lat, lng, isValidLocation, address });
+
+  let universalUrl;
+  if (isValidLocation) {
+    universalUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  } else {
+    let safeAddress = address ? address.trim() : '';
+    if (!safeAddress) {
+      Alert.alert('Hata', 'Konum veya adres bilgisi bulunamadı.');
+      return;
+    }
+    const query = encodeURIComponent(safeAddress);
+    universalUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+  }
+
+  if (Platform.OS === 'web') {
+    window.open(universalUrl, '_blank');
+    return;
+  }
+
+  const mapLabel = label ? encodeURIComponent(label) : 'Konum';
+  const schemeUrl = Platform.select({
+    ios: isValidLocation ? `maps:0,0?daddr=${lat},${lng}&q=${mapLabel}` : `maps:0,0?q=${encodeURIComponent(address)}`,
+    android: isValidLocation ? `geo:${lat},${lng}?q=${lat},${lng}(${mapLabel})` : `geo:0,0?q=${encodeURIComponent(address)}`
+  });
+
+  Linking.canOpenURL(schemeUrl).then((supported) => {
+    if (supported) Linking.openURL(schemeUrl);
+    else Linking.openURL(universalUrl);
+  }).catch(() => Linking.openURL(universalUrl));
+};
+
+const openNavigation = (order) => {
+  openMap(order.latitude, order.longitude, order.address, order.customerName);
+};
+
+const callCustomer = (phoneNumber) => {
+  const url = `tel:${phoneNumber}`;
+  Linking.canOpenURL(url).then((supported) => {
+    if (supported) return Linking.openURL(url);
+    else Alert.alert('Hata', 'Telefon araması yapılamıyor');
+  }).catch((err) => Alert.alert('Hata', 'Arama başlatılamadı'));
+};
+
+// Platform Renkleri (Performans İçin Dışarı Alındı)
+const getPlatformColor = (platform) => {
+  switch (platform) {
+    case 'Trendyol Yemek': return '#F27A1A';
+    case 'Yemeksepeti': return '#FF6600';
+    case 'Getir Yemek': return '#5D3EBC';
+    default: return '#666';
+  }
+};
+
+// Sipariş Kartı Bileşeni (Performans İçin Dışarı Alındı)
+const OrderCard = React.memo(({ order, user, theme, t, onNavigate, onCall, onDeliver, onClaim }) => (
+  <View style={[styles.orderCard, { backgroundColor: theme.card }]}>
+    <View style={[styles.platformBadge, { backgroundColor: getPlatformColor(order.platform) }]}>
+      <Text style={styles.platformText}>{order.platform}</Text>
+    </View>
+
+    <View style={styles.orderHeader}>
+      <Text style={[styles.orderNumber, { color: theme.text }]}>{order.orderNumber}</Text>
+      <Text style={[styles.orderTime, { color: theme.subText }]}>
+        {new Date(order.orderTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </View>
+
+    <View style={styles.customerInfo}>
+      <WebIcon name="person" size={20} color={theme.text} />
+      <Text style={[styles.customerName, { color: theme.text }]}>{order.customerName}</Text>
+    </View>
+
+    <View style={styles.addressInfo}>
+      <WebIcon name="location" size={20} color="#E63946" />
+      <Text style={[styles.address, { color: theme.subText }]}>{order.address}</Text>
+    </View>
+
+    <View style={styles.itemsContainer}>
+      <Text style={[styles.itemsLabel, { color: theme.text }]}>{t.items}:</Text>
+      {order.items.map((item, index) => (
+        <Text key={index} style={[styles.item, { color: theme.subText }]}>• {item}</Text>
+      ))}
+    </View>
+
+    <View style={styles.priceContainer}>
+      <Text style={[styles.priceLabel, { color: theme.text }]}>{t.total}:</Text>
+      <Text style={styles.price}>{order.totalPrice}</Text>
+    </View>
+
+    <View style={styles.actionButtons}>
+      <TouchableOpacity
+        style={[styles.button, styles.navButton]}
+        onPress={() => onNavigate(order)}
+      >
+        <WebIcon name="navigate" size={24} color="#fff" />
+        <Text style={styles.buttonText}>{t.directions}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, styles.callButton]}
+        onPress={() => onCall(order.phone)}
+      >
+        <WebIcon name="call" size={24} color="#fff" />
+        <Text style={styles.buttonText}>{t.call}</Text>
+      </TouchableOpacity>
+
+      {order.status === 'active' && order.courierId === user.id && (
+        <TouchableOpacity
+          style={[styles.button, styles.deliverButton]}
+          onPress={() => onDeliver(order.id)}
+        >
+          <WebIcon name="checkmark-circle" size={24} color="#fff" />
+          <Text style={styles.buttonText}>{t.deliver}</Text>
+        </TouchableOpacity>
+      )}
+
+      {order.courierId === null && (
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: '#457B9D' }]}
+          onPress={() => onClaim(order.id, order.orderNumber)}
+        >
+          <WebIcon name="hand-left" size={24} color="#fff" />
+          <Text style={styles.buttonText}>{t.claim}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+
+    {order.courierName && order.courierId !== user.id && (
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, backgroundColor: '#EBF2F7', padding: 6, borderRadius: 6 }}>
+        <WebIcon name="person-circle" size={18} color="#457B9D" />
+        <Text style={{ color: '#457B9D', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>{order.courierName} {t.onCourier}</Text>
+      </View>
+    )}
+
+    {order.status === 'completed' && order.deliveryTime && (
+      <View style={styles.completedBadge}>
+        <WebIcon name="checkmark-circle" size={18} color="#2A9D8F" />
+        <Text style={styles.completedText}>
+          {t.deliveredMsg} - {new Date(order.deliveryTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+        </Text>
+      </View>
+    )}
+  </View>
+));
+
 // Ana Uygulama
 const MainApp = ({ user, onLogout }) => {
+  // Guard against null user during logout transition
+  if (!user) return null;
+
   const { theme, isDark, toggleTheme } = React.useContext(ThemeContext);
   const { t, language, changeLanguage } = React.useContext(LanguageContext);
   const isDarkMode = isDark;
@@ -1867,7 +2024,7 @@ const MainApp = ({ user, onLogout }) => {
     };
   }, []);
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
       const response = await fetch(`${API_URL}/orders?courierId=${user.id}`, {
@@ -1887,9 +2044,9 @@ const MainApp = ({ user, onLogout }) => {
     } catch (error) {
       console.error('Siparişler yüklenemedi:', error);
     }
-  };
+  }, [user.id]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
       const response = await fetch(`${API_URL}/couriers/${user.id}/stats`, {
@@ -1905,17 +2062,9 @@ const MainApp = ({ user, onLogout }) => {
     } catch (error) {
       console.error('İstatistikler yüklenemedi:', error);
     }
-  };
+  }, [user.id]);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadOrders();
-    await loadStats();
-    if (user.role === 'chief') await loadTeam();
-    setRefreshing(false);
-  };
-
-  const loadTeam = async () => {
+  const loadTeam = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
       const response = await fetch(`${API_URL}/couriers/team`, {
@@ -1926,7 +2075,15 @@ const MainApp = ({ user, onLogout }) => {
     } catch (error) {
       console.error('Ekip yüklenemedi:', error);
     }
-  };
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadOrders();
+    await loadStats();
+    if (user.role === 'chief') await loadTeam();
+    setRefreshing(false);
+  }, [loadOrders, loadStats, loadTeam, user.role]);
 
   const renderTeamMember = (member) => {
     const isChief = member.role === 'chief';
@@ -1968,46 +2125,62 @@ const MainApp = ({ user, onLogout }) => {
     );
   };
 
-  const openNavigation = (order) => {
-    const scheme = Platform.select({
-      ios: 'maps:',
-      android: 'geo:',
-    });
+  const handleLogout = async () => {
+    try {
+      setLoading(true);
+      // Stop location tracking
+      if (locationWatchRef.current) {
+        await locationWatchRef.current.remove();
+        locationWatchRef.current = null;
+      }
+      if (Platform.OS !== 'web') {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => { });
+      }
 
-    const latLng = `${order.latitude},${order.longitude}`;
-    const label = order.customerName;
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('user');
+      await AsyncStorage.removeItem('lastReadAnnouncement'); // Optional cleanup
 
-    const url = Platform.select({
-      ios: `${scheme}?daddr=${latLng}&q=${encodeURIComponent(label)}`,
-      android: `${scheme}${latLng}?q=${latLng}(${encodeURIComponent(label)})`,
-    });
-
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${latLng}`;
-          return Linking.openURL(googleMapsUrl);
-        }
-      })
-      .catch((err) => Alert.alert('Hata', 'Navigasyon açılamadı'));
+      setUser(null);
+      setIsLoggedIn(false);
+    } catch (e) {
+      console.error('Logout error:', e);
+      // Force state clear even on error
+      setUser(null);
+      setIsLoggedIn(false);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const callCustomer = (phoneNumber) => {
-    const url = `tel:${phoneNumber}`;
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert('Hata', 'Telefon araması yapılamıyor');
-        }
-      })
-      .catch((err) => Alert.alert('Hata', 'Arama başlatılamadı'));
-  };
+  // ... (existing helper functions) ...
 
-  const deliverOrder = async (orderId) => {
+
+
+  const completeDelivery = useCallback(async (orderId) => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const response = await fetch(`${API_URL}/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: 'completed', courierId: user.id }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert('Başarılı', 'Sipariş teslim edildi!');
+        loadOrders();
+        loadStats();
+        // Değerlendirme iste
+        setRatingModal({ visible: true, orderId, orderNumber: data.data?.orderNumber || '' });
+      } else {
+        Alert.alert('Hata', data.message || 'Teslimat kaydedilemedi');
+      }
+    } catch (error) {
+      Alert.alert('Hata', 'Sunucu hatası');
+    }
+  }, [loadOrders, loadStats, user.id]);
+
+  const deliverOrder = useCallback(async (orderId) => {
     console.log('[WEB DEBUG] Deliver button pressed for:', orderId);
     if (Platform.OS === 'web') {
       console.log('[WEB DEBUG] Platform detected as WEB');
@@ -2065,32 +2238,9 @@ const MainApp = ({ user, onLogout }) => {
         { text: 'İptal', style: 'cancel' },
       ]
     );
-  };
+  }, [completeDelivery]);
 
-  const completeDelivery = async (orderId) => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-      const response = await fetch(`${API_URL}/orders/${orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ status: 'completed', courierId: user.id }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        Alert.alert('Başarılı', 'Sipariş teslim edildi!');
-        loadOrders();
-        loadStats();
-        // Değerlendirme iste
-        setRatingModal({ visible: true, orderId, orderNumber: data.data?.orderNumber || '' });
-      } else {
-        Alert.alert('Hata', data.message || 'Teslimat kaydedilemedi');
-      }
-    } catch (error) {
-      Alert.alert('Hata', 'Sunucu hatası');
-    }
-  };
-
-  const submitRating = async () => {
+  const submitRating = useCallback(async () => {
     if (selectedRating === 0) {
       setRatingModal({ ...ratingModal, visible: false });
       return;
@@ -2109,9 +2259,10 @@ const MainApp = ({ user, onLogout }) => {
     setRatingModal({ visible: false, orderId: null, orderNumber: '' });
     setSelectedRating(0);
     setRatingComment('');
-  };
+  }, [ratingModal, selectedRating, ratingComment]);
 
-  const loadOptimizedRoute = async () => {
+
+  const loadOptimizedRoute = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
@@ -2130,9 +2281,9 @@ const MainApp = ({ user, onLogout }) => {
     } catch (err) {
       console.error('Rota hatası:', err);
     }
-  };
+  }, []);
 
-  const claimOrder = async (orderId, orderNumber) => {
+  const claimOrder = useCallback(async (orderId, orderNumber) => {
     try {
       const token = await AsyncStorage.getItem('token');
       const response = await fetch(`${API_URL}/orders/${orderId}/claim`, {
@@ -2154,111 +2305,62 @@ const MainApp = ({ user, onLogout }) => {
     } catch (error) {
       Alert.alert('Hata', 'Sunucu hatası');
     }
-  };
+  }, [loadOrders, loadStats]);
 
-  const getPlatformColor = (platform) => {
-    switch (platform) {
-      case 'Trendyol Yemek':
-        return '#F27A1A';
-      case 'Yemeksepeti':
-        return '#FF6600';
-      case 'Getir Yemek':
-        return '#5D3EBC';
-      default:
-        return '#666';
+  const seedDemoData = async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Hata', 'Oturum açılmamış. Lütfen tekrar giriş yapın.');
+        return;
+      }
+
+      const sampleOrders = [
+        {
+          customerName: 'Ahmet Yılmaz (Valid)',
+          address: 'Atatürk Cd. No:1, İstanbul',
+          totalPrice: '150 TL',
+          items: ['Burger', 'Cola'],
+          platform: 'Getir Yemek',
+          latitude: 41.0082,
+          longitude: 28.9784,
+          phone: '5551234567'
+        },
+        {
+          customerName: 'Mehmet Demir (No Coords)',
+          address: 'Bağdat Cd. No:15, İstanbul',
+          totalPrice: '220 TL',
+          items: ['Pizza', 'Ayran'],
+          platform: 'Yemeksepeti',
+          latitude: 0,
+          longitude: 0,
+          phone: '5559876543'
+        }
+      ];
+
+      let count = 0;
+      for (const order of sampleOrders) {
+        const response = await fetch(`${API_URL}/orders/manual`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(order)
+        });
+
+        const resData = await response.json();
+        if (!response.ok) {
+          throw new Error(resData.message || 'Sunucu hatası');
+        }
+        count++;
+      }
+      Alert.alert('Başarılı', `${count} adet demo sipariş eklendi.`);
+      loadOrders();
+    } catch (err) {
+      console.error('Demo seed error:', err);
+      Alert.alert('Hata', 'Demo veri eklenemedi: ' + err.message);
     }
   };
 
-  const OrderCard = ({ order }) => (
-    <View style={[styles.orderCard, { backgroundColor: theme.card }]}>
-      <View style={[styles.platformBadge, { backgroundColor: getPlatformColor(order.platform) }]}>
-        <Text style={styles.platformText}>{order.platform}</Text>
-      </View>
 
-      <View style={styles.orderHeader}>
-        <Text style={[styles.orderNumber, { color: theme.text }]}>{order.orderNumber}</Text>
-        <Text style={[styles.orderTime, { color: theme.subText }]}>
-          {new Date(order.orderTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-        </Text>
-      </View>
-
-      <View style={styles.customerInfo}>
-        <WebIcon name="person" size={20} color={theme.text} />
-        <Text style={[styles.customerName, { color: theme.text }]}>{order.customerName}</Text>
-      </View>
-
-      <View style={styles.addressInfo}>
-        <WebIcon name="location" size={20} color="#E63946" />
-        <Text style={[styles.address, { color: theme.subText }]}>{order.address}</Text>
-      </View>
-
-      <View style={styles.itemsContainer}>
-        <Text style={[styles.itemsLabel, { color: theme.text }]}>{t.items}:</Text>
-        {order.items.map((item, index) => (
-          <Text key={index} style={[styles.item, { color: theme.subText }]}>• {item}</Text>
-        ))}
-      </View>
-
-      <View style={styles.priceContainer}>
-        <Text style={[styles.priceLabel, { color: theme.text }]}>{t.total}:</Text>
-        <Text style={styles.price}>{order.totalPrice}</Text>
-      </View>
-
-      <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={[styles.button, styles.navButton]}
-          onPress={() => openNavigation(order)}
-        >
-          <WebIcon name="navigate" size={24} color="#fff" />
-          <Text style={styles.buttonText}>{t.directions}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, styles.callButton]}
-          onPress={() => callCustomer(order.phone)}
-        >
-          <WebIcon name="call" size={24} color="#fff" />
-          <Text style={styles.buttonText}>{t.call}</Text>
-        </TouchableOpacity>
-
-        {order.status === 'active' && order.courierId === user.id && (
-          <TouchableOpacity
-            style={[styles.button, styles.deliverButton]}
-            onPress={() => deliverOrder(order.id)}
-          >
-            <WebIcon name="checkmark-circle" size={24} color="#fff" />
-            <Text style={styles.buttonText}>{t.deliver}</Text>
-          </TouchableOpacity>
-        )}
-
-        {order.courierId === null && (
-          <TouchableOpacity
-            style={[styles.button, { backgroundColor: '#457B9D' }]}
-            onPress={() => claimOrder(order.id, order.orderNumber)}
-          >
-            <WebIcon name="hand-left" size={24} color="#fff" />
-            <Text style={styles.buttonText}>{t.claim}</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {order.courierName && order.courierId !== user.id && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, backgroundColor: '#EBF2F7', padding: 6, borderRadius: 6 }}>
-          <WebIcon name="person-circle" size={18} color="#457B9D" />
-          <Text style={{ color: '#457B9D', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>{order.courierName} {t.onCourier}</Text>
-        </View>
-      )}
-
-      {order.status === 'completed' && order.deliveryTime && (
-        <View style={styles.completedBadge}>
-          <WebIcon name="checkmark-circle" size={18} color="#2A9D8F" />
-          <Text style={styles.completedText}>
-            {t.deliveredMsg} - {new Date(order.deliveryTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
 
   if (showLocationPanel && user.role === 'chief') {
     return <LiveLocationPanel user={user} onBack={() => setShowLocationPanel(false)} />;
@@ -2299,6 +2401,7 @@ const MainApp = ({ user, onLogout }) => {
 
       <ScrollView
         style={[styles.content, { backgroundColor: theme.bg }]}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.headerBg]} tintColor={theme.headerBg} />
         }
@@ -2312,7 +2415,17 @@ const MainApp = ({ user, onLogout }) => {
                 <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>Sahipsiz</Text>
               </View>
             </View>
-            {poolOrders.map(order => <OrderCard key={order.id} order={order} />)}
+            {poolOrders.map(order => <OrderCard
+              key={order.id}
+              order={order}
+              user={user}
+              theme={theme}
+              t={t}
+              onNavigate={openNavigation}
+              onCall={callCustomer}
+              onDeliver={deliverOrder}
+              onClaim={claimOrder}
+            />)}
           </View>
         )}
 
@@ -2329,7 +2442,17 @@ const MainApp = ({ user, onLogout }) => {
               <Text style={styles.emptySubtext}>Aşağı çekerek yenileyin</Text>
             </View>
           ) : (
-            activeOrders.map(order => <OrderCard key={order.id} order={order} />)
+            activeOrders.map(order => <OrderCard
+              key={order.id}
+              order={order}
+              user={user}
+              theme={theme}
+              t={t}
+              onNavigate={openNavigation}
+              onCall={callCustomer}
+              onDeliver={deliverOrder}
+              onClaim={claimOrder}
+            />)
           )}
         </View>
 
@@ -2339,7 +2462,17 @@ const MainApp = ({ user, onLogout }) => {
               <WebIcon name="checkmark-done" size={24} color="#2A9D8F" />
               <Text style={[styles.sectionTitle, { color: theme.text }]}>{t.delivered} ({completedOrders.length})</Text>
             </View>
-            {completedOrders.slice(0, 5).map(order => <OrderCard key={order.id} order={order} />)}
+            {completedOrders.slice(0, 5).map(order => <OrderCard
+              key={order.id}
+              order={order}
+              user={user}
+              theme={theme}
+              t={t}
+              onNavigate={openNavigation}
+              onCall={callCustomer}
+              onDeliver={deliverOrder}
+              onClaim={claimOrder}
+            />)}
           </View>
         )}
 
@@ -2426,6 +2559,13 @@ const MainApp = ({ user, onLogout }) => {
               ))}
             </View>
           </View>
+
+          {/* DEMO VERİ BUTONU */}
+          {(user.role === 'manager' || user.role === 'chief' || user.username === 'kurye1') && (
+            <TouchableOpacity onPress={seedDemoData} style={{ marginTop: 12, backgroundColor: '#457B9D', padding: 12, borderRadius: 10, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: 'bold' }}>🛠️ Demo Veri Ekle (+2 Sipariş)</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -2462,7 +2602,7 @@ const MainApp = ({ user, onLogout }) => {
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={{ color: '#6C63FF', fontWeight: 'bold', fontSize: 13 }}>{stop.distance}</Text>
-                    <TouchableOpacity onPress={() => { Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${stop.latitude},${stop.longitude}`); }}>
+                    <TouchableOpacity onPress={() => openMap(stop.latitude, stop.longitude, stop.address, stop.customerName)}>
                       <Text style={{ color: '#E63946', fontSize: 11, fontWeight: 'bold' }}>Yol Tarifi →</Text>
                     </TouchableOpacity>
                   </View>

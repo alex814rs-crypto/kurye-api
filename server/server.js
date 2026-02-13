@@ -1263,6 +1263,71 @@ app.get('/api/orders/optimized-route', authenticateToken, async (req, res) => {
   }
 });
 
+// ============= DEBUG ROUTES =============
+app.post('/api/debug/seed', async (req, res) => {
+  try {
+    const business = await Business.findOne({ code: 'DEMO123' });
+    if (!business) return res.status(404).json({ success: false, message: 'DEMO123 bulunamadı' });
+
+    const courier = await Courier.findOne({ businessId: business._id, username: 'kurye1' });
+    const courierId = courier ? courier._id : null;
+
+    const sampleOrders = [
+      {
+        businessId: business._id,
+        orderNumber: `TEST-${Math.floor(Math.random() * 10000)}`,
+        customerName: 'Ahmet Yılmaz (Valid Coords)',
+        address: 'Atatürk Cd. No:1, İstanbul',
+        totalPrice: '150 TL',
+        items: ['Burger Menü', 'Kola'],
+        platform: 'Getir Yemek',
+        paymentMethod: 'Credit Card',
+        status: 'active',
+        courierId: courierId,
+        latitude: 41.0082,
+        longitude: 28.9784,
+        orderTime: new Date()
+      },
+      {
+        businessId: business._id,
+        orderNumber: `TEST-${Math.floor(Math.random() * 10000)}`,
+        customerName: 'Mehmet Demir (No Coords)',
+        address: 'Bağdat Cd. No:15, İstanbul',
+        totalPrice: '220 TL',
+        items: ['Pizza', 'Ayran'],
+        platform: 'Yemeksepeti',
+        paymentMethod: 'Cash',
+        status: 'active',
+        courierId: courierId,
+        latitude: 0,
+        longitude: 0,
+        orderTime: new Date()
+      },
+      {
+        businessId: business._id,
+        orderNumber: `TEST-${Math.floor(Math.random() * 10000)}`,
+        customerName: 'Ayşe Kaya (Completed)',
+        address: 'İstiklal Cd. No:50, İstanbul',
+        totalPrice: '85 TL',
+        items: ['Döner', 'Şalgam'],
+        platform: 'Trendyol Yemek',
+        paymentMethod: 'Credit Card',
+        status: 'completed',
+        courierId: courierId,
+        latitude: 41.0282,
+        longitude: 28.9734,
+        orderTime: new Date(Date.now() - 3600000),
+        deliveryTime: new Date()
+      }
+    ];
+
+    await Order.insertMany(sampleOrders);
+    res.json({ success: true, message: '3 adet test siparişi eklendi', data: sampleOrders });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ============= START SERVER =============
 
 const startServer = async () => {
