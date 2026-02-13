@@ -35,8 +35,12 @@ app.use(helmet({
 }));
 
 // CORS yapılandırması
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*';
-app.use(cors({ origin: allowedOrigins, methods: ['GET', 'POST', 'PATCH', 'DELETE'] }));
+// CORS yapılandırması
+app.use(cors({
+  origin: '*', // Tüm kaynaklara izin ver (Vercel, Localhost vs.)
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-webhook-key']
+}));
 
 // Body parser
 app.use(bodyParser.json({ limit: '1mb' }));
