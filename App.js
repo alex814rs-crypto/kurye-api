@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.14';
+const APP_VERSION = '2.10.15';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -1994,7 +1994,7 @@ const MainApp = ({ user, onLogout }) => {
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
       if (fgStatus !== 'granted') {
         console.log('Ön plan konum izni yok');
-        if (Platform.OS === 'web') alert('Konum izni gerekli');
+        Alert.alert('Hata', 'Konum izni reddedildi. Lütfen ayarlardan izin verin.');
         return;
       }
 
@@ -2020,6 +2020,33 @@ const MainApp = ({ user, onLogout }) => {
 
       // Ön plan takibi (Web ve Mobil için ortak yedek)
       const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Hata', 'Oturum bilgisi bulunamadı. Lütfen tekrar giriş yapın.');
+        return;
+      }
+
+      // Tek seferlik konum al ve gönder (Manuel Tetikleme için)
+      const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      try {
+        await fetch(`${API_URL}/couriers/location`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            latitude: currentLoc.coords.latitude,
+            longitude: currentLoc.coords.longitude,
+          }),
+        });
+        console.log('[LOCATION DEBUG] Location SENT successfully:', currentLoc.coords.latitude, currentLoc.coords.longitude);
+        Alert.alert('Başarılı', 'Konum sunucuya gönderildi! \nLat: ' + currentLoc.coords.latitude);
+      } catch (err) {
+        console.error('Manual location error:', err);
+        Alert.alert('Gönderim Hatası', 'Sunucuya ulaşılamadı: ' + err.message);
+      }
+
+      // Süreli takip başlat
       locationWatchRef.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
@@ -2027,9 +2054,6 @@ const MainApp = ({ user, onLogout }) => {
           distanceInterval: 50,
         },
         async (loc) => {
-          // Zaten arka plan görevi çalışıyorsa mobilde bunu göndermeyebiliriz, 
-          // ama çakışma olmaması için basit bir check veya double-send kabul edilebilir.
-          // Basitlik adına: Web için kesin gerekli, mobil için foreground yedeği.
           try {
             await fetch(`${API_URL}/couriers/location`, {
               method: 'POST',
@@ -2042,12 +2066,13 @@ const MainApp = ({ user, onLogout }) => {
                 longitude: loc.coords.longitude,
               }),
             });
-            console.log('[LOCATION DEBUG] Location SENT successfully:', loc.coords.latitude, loc.coords.longitude);
+            console.log('[LOCATION DEBUG] Auto-Location SENT');
           } catch (err) { console.error('Foreground location error:', err); }
         }
       );
     } catch (err) {
       console.error('Konum servisi başlatılamadı:', err);
+      Alert.alert('Kritik Hata', 'Konum servisi başlatılamadı: ' + err.message);
     }
   }, []);
 
