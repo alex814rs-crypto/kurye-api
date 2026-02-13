@@ -1711,7 +1711,7 @@ const LoginScreen = ({ onLogin }) => {
               )}
             </TouchableOpacity>
 
-            <Text style={{ textAlign: 'center', marginTop: 30, color: '#ccc', fontSize: 10 }}>v2.10.9 - Stabilizer Fix</Text>
+            <Text style={{ textAlign: 'center', marginTop: 30, color: '#ccc', fontSize: 10 }}>v2.10.10 - Stabilizer Fix (Web Debug)</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -1748,14 +1748,21 @@ const MainApp = ({ user, onLogout }) => {
 
   // Konum takibi başlat (kurye/şef)
   const startLocationTracking = useCallback(async () => {
+    console.log('[WEB DEBUG] Starting location tracking...');
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
+      console.log('[WEB DEBUG] Location permission status:', status);
       if (status !== 'granted') {
         console.log('Konum izni reddedildi');
+        if (Platform.OS === 'web') {
+          alert('Konum izni verilmediği için harita çalışmayabilir.');
+        }
         return;
       }
 
       const token = await AsyncStorage.getItem('token');
+      console.log('[WEB DEBUG] Token found for location tracking');
+
 
       // 30 saniyede bir konum güncelle
       locationWatchRef.current = await Location.watchPositionAsync(
@@ -1949,10 +1956,19 @@ const MainApp = ({ user, onLogout }) => {
   };
 
   const deliverOrder = async (orderId) => {
+    console.log('[WEB DEBUG] Deliver button pressed for:', orderId);
     if (Platform.OS === 'web') {
-      const confirm = window.confirm('Siparişi teslim etmek istiyor musunuz?');
-      if (confirm) {
-        completeDelivery(orderId);
+      console.log('[WEB DEBUG] Platform detected as WEB');
+      try {
+        const confirm = window.confirm('Siparişi teslim etmek istiyor musunuz?');
+        console.log('[WEB DEBUG] Window confirm result:', confirm);
+        if (confirm) {
+          await completeDelivery(orderId);
+        }
+      } catch (e) {
+        console.error('[WEB DEBUG] Window confirm error:', e);
+        // Fallback
+        await completeDelivery(orderId);
       }
       return;
     }
