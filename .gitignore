@@ -8,4 +8,6 @@ web-build/
 Thumbs.db
 .vercel
 
+public/
+!dist/
 .env
