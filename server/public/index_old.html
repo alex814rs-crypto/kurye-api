@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kurye Yönetim Paneli</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Login Ekranı -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center bg-gray-100">
+        <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
+            <div class="text-center mb-8">
+                <i class="fas fa-motorcycle text-4xl text-indigo-600 mb-4"></i>
+                <h2 class="text-2xl font-bold text-gray-800">Yönetim Paneli Giriş</h2>
+            </div>
+            <div id="loginError" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4"></div>
+            <form id="loginForm" class="space-y-6">
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Kullanıcı Adı</label>
+                    <input type="text" id="username"
+                        class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        required>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Şifre</label>
+                    <input type="password" id="password"
+                        class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        required>
+                </div>
+                <button type="button" id="loginBtn" onclick="handleLogin()"
+                    class="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition duration-300 font-bold">
+                    Giriş Yap
+                </button>
+            </form>
+            <div class="mt-4 text-center text-sm text-gray-500">
+                Demo Admin: admin / admin123 <br>
+                <span class="text-xs text-gray-400">v2.1</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ... (Dashboard Ekranı aynı kalıyor) ... -->
+
+    <script>
+        // Hata Yakalama
+        window.onerror = function (msg, url, line, col, error) {
+            alert("JS Hatası: " + msg + "\nSatır: " + line);
+            return false;
+        };
+
+        const API_URL = '/api';
+        let token = localStorage.getItem('token');
+        let user = null;
+
+        // Güvenli JSON parse
+        try {
+            const storedUser = localStorage.getItem('user');
+            if (storedUser && storedUser !== 'undefined') {
+                user = JSON.parse(storedUser);
+            }
+        } catch (e) {
+            console.error("LocalStorage hatası:", e);
+            localStorage.removeItem('user'); // Bozuksa temizle
+        }
+
+        // Global Fonksiyonlar
+        window.handleLogin = async function () {
+            console.log("Butona tıklandı...");
+            const btn = document.getElementById('loginBtn');
+            const err = document.getElementById('loginError');
+
+            btn.textContent = 'İşleniyor...';
+            btn.disabled = true;
+            err.classList.add('hidden');
+
+            const username = document.getElementById('username')?.value;
+            const password = document.getElementById('password')?.value;
+
+            console.log("Giriş deneniyor:", username);
+
+            if (!username || !password) {
+                alert("Lütfen kullanıcı adı ve şifre girin");
+                btn.textContent = 'Giriş Yap';
+                btn.disabled = false;
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/auth/admin-login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                console.log("Sunucu yanıt kodu:", res.status);
+                const data = await res.json();
+                console.log("Veri:", data);
+
+                if (data.success) {
+                    token = data.token;
+                    user = data.user;
+                    localStorage.setItem('token', token);
+                    localStorage.setItem('user', JSON.stringify(user));
+                    showDashboard();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                console.error("Login hatası:", error);
+                err.textContent = error.message || 'Sunucu hatası';
+                err.classList.remove('hidden');
+                alert("Hata: " + (error.message || 'Sunucuya bağlanılamadı'));
+            } finally {
+                btn.textContent = 'Giriş Yap';
+                btn.disabled = false;
+            }
+        };
+
+        window.logout = function () {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            token = null;
+            user = null;
+            showLogin();
+        };
+
+        window.openModal = function () {
+            document.getElementById('modal').classList.remove('hidden');
+        };
+
+        window.closeModal = function () {
+            document.getElementById('modal').classList.add('hidden');
+            document.getElementById('createBusinessForm').reset();
+        };
+
+        window.deleteBusiness = async function (id) {
+            if (!confirm('Bu işletmeyi silmek istediğinize emin misiniz?')) return;
+
+            try {
+                const res = await fetch(`${API_URL}/admin/businesses/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    loadBusinesses();
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                alert('Silinemedi');
+            }
+        };
+
+        // Sayfa Yüklendiğinde
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("Sayfa yüklendi v2.2");
+            if (token && user) {
+                showDashboard();
+            } else {
+                showLogin();
+            }
+
+            // İşletme Ekleme Listener
+            const createForm = document.getElementById('createBusinessForm');
+            if (createForm) {
+                createForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const btn = document.getElementById('saveBtn');
+                    btn.textContent = 'Kaydediliyor...';
+                    btn.disabled = true;
+
+                    const formData = new FormData(e.target);
+                    const data = Object.fromEntries(formData.entries());
+
+                    try {
+                        const res = await fetch(`${API_URL}/admin/businesses`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify(data)
+                        });
+                        const result = await res.json();
+
+                        if (result.success) {
+                            alert(result.message);
+                            closeModal();
+                            loadBusinesses();
+                        } else {
+                            alert(result.message);
+                        }
+                    } catch (error) {
+                        alert('Bir hata oluştu');
+                    } finally {
+                        btn.textContent = 'Kaydet';
+                        btn.disabled = false;
+                    }
+                });
+            }
+        });
+
+        function showLogin() {
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('dashboardScreen').classList.add('hidden');
+        }
+
+        function showDashboard() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('dashboardScreen').classList.remove('hidden');
+            if (document.getElementById('userDisplay')) {
+                document.getElementById('userDisplay').textContent = user.username + ' (' + user.role + ')';
+            }
+            loadBusinesses();
+        }
+
+        async function loadBusinesses() {
+            const tbody = document.getElementById('businessTableBody');
+            const loading = document.getElementById('loading');
+
+            if (loading) loading.classList.remove('hidden');
+            if (tbody) tbody.innerHTML = '';
+
+            try {
+                const res = await fetch(`${API_URL}/admin/businesses`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                if (data.success && tbody) {
+                    if (data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">Henüz hiç işletme eklenmemiş.</td></tr>';
+                    } else {
+                        tbody.innerHTML = data.data.map(b => `
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-6 py-4 font-mono font-medium text-indigo-600 bg-indigo-50 w-32 text-center rounded m-2 select-all">${b.code}</td>
+                                <td class="px-6 py-4 font-medium text-gray-900">${b.name}</td>
+                                <td class="px-6 py-4 text-gray-600">${b.owner}</td>
+                                <td class="px-6 py-4 text-gray-600 text-sm">
+                                    <div><i class="fas fa-phone w-4"></i> ${b.phone}</div>
+                                    <div><i class="fas fa-envelope w-4"></i> ${b.email}</div>
+                                </td>
+                                <td class="px-6 py-4 text-right">
+                                    <button onclick="deleteBusiness('${b._id}')" class="text-red-500 hover:text-red-700" title="Sil"><i class="fas fa-trash"></i></button>
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
+                }
+            } catch (error) {
+                console.error(error);
+                // alert('Veriler yüklenemedi'); // Login olmadan dashboarda düşmesin diye sessiz hata
+            } finally {
+                if (loading) loading.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+
+</html>
