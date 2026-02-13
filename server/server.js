@@ -371,7 +371,7 @@ app.post('/api/admin/settings', authenticateToken, async (req, res) => {
 app.get('/api/businesses/:businessId/couriers', authenticateToken, async (req, res) => {
   try {
     const couriers = await Courier.find({ businessId: req.params.businessId, isActive: true })
-      .select('name username phone role isActive');
+      .select('name username phone role isActive latitude longitude');
     res.json({ success: true, data: couriers });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -410,6 +410,8 @@ app.get('/api/couriers/team', authenticateToken, async (req, res) => {
         name: c.name,
         phone: c.phone,
         role: c.role,
+        latitude: c.latitude,
+        longitude: c.longitude,
         activeOrders: activeOrders.length,
         completedToday,
         orders: activeOrders.map(o => ({
