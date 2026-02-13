@@ -1383,7 +1383,7 @@ const startServer = async () => {
     try {
       const couriers = await Courier.find({ isActive: true, role: { $in: ['courier', 'chief'] } }).select('_id name phone role businessId latitude longitude lastUpdate');
       couriers.forEach(c => {
-        if (c.latitude && c.longitude) {
+        if (c.latitude !== undefined && c.longitude !== undefined) {
           courierLocations.set(c._id.toString(), {
             courierId: c._id.toString(),
             name: c.name,
@@ -1408,8 +1408,43 @@ const startServer = async () => {
     console.error('Hata Detayı:', error.message);
     console.error('NOT: Sunucu açık kalacak ancak API yanıt vermeyebilir.');
     console.error('================================================');
-    // process.exit(1) yapmıyoruz, sunucu logları görülebilsin diye açık kalsın
   }
 };
+
+// DEBUG: Rastgele konum verisi oluştur (Test için)
+app.get('/api/debug/seed-locations', async (req, res) => {
+  try {
+    const couriers = await Courier.find({ isActive: true, role: { $in: ['courier', 'chief'] } });
+    const centerLat = 41.0082;
+    const centerLng = 28.9784; // İstanbul
+
+    let updatedCount = 0;
+    for (const c of couriers) {
+      // Rastgele küçük sapma
+      const lat = centerLat + (Math.random() - 0.5) * 0.1;
+      const lng = centerLng + (Math.random() - 0.5) * 0.1;
+
+      c.latitude = lat;
+      c.longitude = lng;
+      c.lastUpdate = new Date();
+      await c.save();
+
+      courierLocations.set(c._id.toString(), {
+        courierId: c._id.toString(),
+        name: c.name,
+        phone: c.phone,
+        role: c.role,
+        businessId: c.businessId.toString(),
+        latitude: lat,
+        longitude: lng,
+        updatedAt: c.lastUpdate.toISOString(),
+      });
+      updatedCount++;
+    }
+    res.json({ success: true, message: `${updatedCount} kurye konumu güncellendi.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 startServer();
