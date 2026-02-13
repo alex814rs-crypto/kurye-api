@@ -34,11 +34,26 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "CALL_PHONE"
-      ]
+      ],
+      "newArchEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Kurye App",
+      "shortName": "Kurye",
+      "display": "standalone",
+      "backgroundColor": "#E63946",
+      "description": "Kurye ve İşletme Yönetim Uygulaması",
+      "themeColor": "#E63946",
+      "startUrl": "/",
+      "scope": "/",
+      "orientation": "portrait"
     },
-    "plugins": []
+    "plugins": [],
+    "extra": {
+      "eas": {
+        "projectId": "d3c8740a-97e6-40a8-9acc-e8edbe96baaa"
+      }
+    }
   }
 }

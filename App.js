@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -13,26 +13,287 @@ import {
   StatusBar,
   RefreshControl,
   ActivityIndicator,
+  Dimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
+import * as ImagePicker from 'expo-image-picker';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
 
+// Bildirim handler ayarları
+// Bildirim handler ayarları
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+} catch (error) {
+  console.log('Notification handler error:', error);
+}
+
+// Push token alma fonksiyonu
+async function registerForPushNotificationsAsync() {
+  let token;
+
+  if (Platform.OS === 'android') {
+    try {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Varsayılan',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#E63946',
+        sound: 'default',
+      });
+    } catch (e) {
+      console.log('Notification channel error:', e);
+    }
+  }
+
+  if (!Device.isDevice) {
+    console.log('Push bildirimleri fiziksel cihaz gerektirir');
+    return null;
+  }
+
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') {
+    console.log('Bildirim izni verilmedi');
+    return null;
+  }
+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) {
+    console.log('Project ID bulunamadı');
+    return null;
+  }
+
+  try {
+    // 3 saniye timeout ekle
+    const tokenData = await Promise.race([
+      Notifications.getExpoPushTokenAsync({ projectId }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Push token timeout')), 3000))
+    ]);
+    token = tokenData.data;
+    console.log('[PUSH] Token:', token);
+  } catch (error) {
+    console.log('Push token hatası:', error);
+  }
+
+  return token;
+}
+
+// ============= KARANLIK MOD & ÇOKLU DİL ALTYAPISI =============
+
+const ThemeContext = React.createContext();
+const LanguageContext = React.createContext();
+
+const lightTheme = {
+  bg: '#F5F5F5', card: '#fff', text: '#333', subText: '#666', muted: '#999', border: '#E5E7EB', inputBg: '#fff', headerBg: '#E63946',
+};
+const darkTheme = {
+  bg: '#121212', card: '#1E1E1E', text: '#E5E7EB', subText: '#9CA3AF', muted: '#6B7280', border: '#374151', inputBg: '#2A2A2A', headerBg: '#1A1A2E',
+};
+
+const translations = {
+  tr: {
+    appName: 'Kurye Uygulaması', login: 'Giriş Yap', logout: 'Çıkış Yap', orders: 'Siparişler', pool: 'Havuz', active: 'Aktif',
+    delivered: 'Teslim Edilenler', deliver: 'Teslim Et', claim: 'Üzerime Al', today: 'Bugün', thisWeek: 'Bu Hafta', avgTime: 'Ort. Süre',
+    settings: 'Ayarlar', darkMode: 'Karanlık Mod', language: 'Dil', profile: 'Profil', team: 'Ekibim', search: 'Ara...',
+    reports: 'Performans Raporları', history: 'Sipariş Geçmişi', addOrder: 'Manuel Sipariş Ekle', route: 'Rota Optimize',
+    rate: 'Değerlendir', skip: 'Geç', send: 'Gönder', cancel: 'İptal', save: 'Kaydet',
+    takePhoto: 'Fotoğraf Çek', deliverWithoutPhoto: 'Fotoğrafsız Teslim Et', admin: 'Yönetici', courier: 'Kurye',
+    items: 'Ürünler', total: 'Toplam', call: 'Ara', directions: 'Yol Tarifi', onCourier: 'üzerinde', deliveredMsg: 'Teslim Edildi',
+    customerName: 'Müşteri Adı', address: 'Adres', phone: 'Telefon', createOrder: 'Sipariş Oluştur', platform: 'Platform',
+    enterCustomerName: 'Müşteri adı giriniz', enterAddress: 'Teslimat adresi giriniz', enterPhone: '0555 123 45 67',
+    enterItems: 'Ürünleri virgülle ayırarak giriniz', enterTotal: 'Toplam tutar (örn: 150 TL)',
+  },
+  en: {
+    appName: 'Courier App', login: 'Login', logout: 'Logout', orders: 'Orders', pool: 'Pool', active: 'Active',
+    delivered: 'Delivered', deliver: 'Deliver', claim: 'Claim', today: 'Today', thisWeek: 'This Week', avgTime: 'Avg. Time',
+    settings: 'Settings', darkMode: 'Dark Mode', language: 'Language', profile: 'Profile', team: 'My Team', search: 'Search...',
+    reports: 'Performance Reports', history: 'Order History', addOrder: 'Manual Order', route: 'Route Optimize',
+    rate: 'Rate', skip: 'Skip', send: 'Send', cancel: 'Cancel', save: 'Save',
+    takePhoto: 'Take Photo', deliverWithoutPhoto: 'Deliver Without Photo', admin: 'Admin', courier: 'Courier',
+    items: 'Items', total: 'Total', call: 'Call', directions: 'Directions', onCourier: 'assigned to', deliveredMsg: 'Delivered',
+    customerName: 'Customer Name', address: 'Address', phone: 'Phone', createOrder: 'Create Order', platform: 'Platform',
+    enterCustomerName: 'Enter customer name', enterAddress: 'Enter delivery address', enterPhone: '0555 123 45 67',
+    enterItems: 'Enter items separated by comma', enterTotal: 'Total amount (e.g. 150 TL)',
+  },
+  ar: {
+    appName: 'تطبيق التوصيل', login: 'تسجيل الدخول', logout: 'تسجيل الخروج', orders: 'الطلبات', pool: 'المجموعة', active: 'نشط',
+    delivered: 'تم التسليم', deliver: 'تسليم', claim: 'قبول', today: 'اليوم', thisWeek: 'هذا الأسبوع', avgTime: 'متوسط الوقت',
+    settings: 'الإعدادات', darkMode: 'الوضع الداكن', language: 'اللغة', profile: 'الملف الشخصي', team: 'فريقي', search: '...بحث',
+    reports: 'تقارير الأداء', history: 'سجل الطلبات', addOrder: 'طلب يدوي', route: 'تحسين المسار',
+    rate: 'تقييم', skip: 'تخطي', send: 'إرسال', cancel: 'إلغاء', save: 'حفظ',
+    takePhoto: 'التقاط صورة', deliverWithoutPhoto: 'تسليم بدون صورة', admin: 'المسؤول', courier: 'ساعي',
+    items: 'المنتجات', total: 'الإجمالي', call: 'اتصال', directions: 'الاتجاهات', onCourier: 'مع', deliveredMsg: 'تم التسليم',
+    customerName: 'اسم العميل', address: 'العنوان', phone: 'الهاتف', createOrder: 'إنشاء طلب', platform: 'المنصة',
+    enterCustomerName: 'أدخل اسم العميل', enterAddress: 'أدخل عنوان التوصيل', enterPhone: '0555 123 45 67',
+    enterItems: 'أدخل المنتجات مفصولة بفواصل', enterTotal: 'المبلغ الإجمالي',
+  },
+};
+
+// Web İkon & PWA Sabitleme (v2.10.7 - Emoji Solution)
+const WebIcon = ({ name, size, color, style }) => {
+  if (Platform.OS !== 'web') {
+    return <WebIcon name={name} size={size} color={color} style={style} />;
+  }
+
+  // Web için Emoji Eşleşmeleri
+  const emojiMap = {
+    'bicycle': '🚲',
+    'settings': '⚙️',
+    'business': '🏢',
+    'person': '👤',
+    'lock-closed': '🔒',
+    'log-in': '🚪',
+    'log-out': '🚪',
+    'download-outline': '📥',
+    'share-outline': '📤',
+    'add-circle-outline': '➕',
+    'search': '🔍',
+    'notifications': '🔔',
+    'person-circle': '👤',
+    'chevron-forward': '▶️',
+    'star': '⭐',
+    'star-outline': '☆',
+    'time-outline': '🕒',
+    'time': '🕒',
+    'location-outline': '📍',
+    'location': '📍',
+    'call-outline': '📞',
+    'logo-whatsapp': '💬',
+    'image-outline': '🖼️',
+    'camera-outline': '📷',
+    'close': '❌',
+    'checkmark-circle': '✅',
+    'alert-circle': '⚠️',
+    'people': '👥',
+    'bar-chart': '📊',
+    'add-circle': '➕',
+    'cube': '📦',
+    'stats-chart': '📈',
+    'chevron-up': '🔼',
+    'chevron-down': '🔽',
+    'navigate': '🧭',
+    'close-circle': '⭕',
+    'checkmark-done': '✅',
+    'checkmark-done-circle-outline': '✔️',
+  };
+
+  return (
+    <Text style={[{ fontSize: size, color: color }, style]}>
+      {emojiMap[name] || '📍'}
+    </Text>
+  );
+};
+
+import * as Font from 'expo-font';
+
+// Web İkon & PWA Sabitleme (v2.10.8 - Stability Fix)
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  // 1. Meta Etiketlerini ve Manifest'i Dinamik Ekle
+  const metaTags = [
+    { name: 'apple-mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+    { name: 'apple-mobile-web-app-title', content: 'Kurye App' },
+    { name: 'theme-color', content: '#E63946' }
+  ];
+
+  metaTags.forEach(tag => {
+    if (!document.querySelector(`meta[name="${tag.name}"]`)) {
+      const m = document.createElement('meta');
+      m.name = tag.name;
+      m.content = tag.content;
+      document.head.appendChild(m);
+    }
+  });
+
+  if (!document.querySelector('link[rel="manifest"]')) {
+    const l = document.createElement('link');
+    l.rel = 'manifest';
+    l.href = '/manifest.json';
+    document.head.appendChild(l);
+  }
+
+  // AGRESİF FONT ENJEKSİYONU KALDIRILDI - WEB-ICON BİLEŞENİ ARTIK YETERLİ
+}
+
 // Ana Uygulama
 const App = () => {
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadFonts() {
+      try {
+        // Web'de font yüklemeye gerek yok (emojiler devrede)
+        if (Platform.OS !== 'web') {
+          await Font.loadAsync({
+            'Ionicons': 'https://cdn.jsdelivr.net/npm/ionicons@6.0.3/dist/fonts/ionicons.ttf',
+          });
+        }
+        setFontsLoaded(true);
+      } catch (e) {
+        console.warn('Font loading error:', e);
+        setFontsLoaded(true);
+      }
+    }
+    loadFonts();
+  }, []);
+
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // ... diğer state'ler
+
   const [user, setUser] = useState(null);
+  const [isDark, setIsDark] = useState(false);
+  const [language, setLanguage] = useState('tr');
+  const theme = isDark ? darkTheme : lightTheme;
+  const t = translations[language] || translations.tr;
+
+  const notificationListener = useRef();
+  const responseListener = useRef();
 
   useEffect(() => {
     checkLoginStatus();
+
+    // Bildirim dinleyicileri
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('[PUSH] Bildirim alındı:', notification.request.content.title);
+    });
+
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('[PUSH] Bildirime tıklandı:', response.notification.request.content.data);
+    });
+
+    return () => {
+      if (notificationListener.current) Notifications.removeNotificationSubscription(notificationListener.current);
+      if (responseListener.current) Notifications.removeNotificationSubscription(responseListener.current);
+    };
   }, []);
 
   const checkLoginStatus = async () => {
     try {
       const userData = await AsyncStorage.getItem('user');
+      const savedTheme = await AsyncStorage.getItem('theme');
+      const savedLang = await AsyncStorage.getItem('language');
+      if (savedTheme === 'dark') setIsDark(true);
+      if (savedLang) setLanguage(savedLang);
       if (userData) {
         setUser(JSON.parse(userData));
         setIsLoggedIn(true);
@@ -45,6 +306,16 @@ const App = () => {
   };
 
   const handleLogout = async () => {
+    console.log('[LOGOUT] Çıkış tuşuna basıldı');
+
+    if (Platform.OS === 'web') {
+      const confirmLogout = window.confirm('Çıkış yapmak istediğinizden emin misiniz?');
+      if (confirmLogout) {
+        await processLogout();
+      }
+      return;
+    }
+
     Alert.alert(
       'Çıkış Yap',
       'Çıkış yapmak istediğinizden emin misiniz?',
@@ -53,38 +324,117 @@ const App = () => {
         {
           text: 'Evet',
           onPress: async () => {
-            await AsyncStorage.removeItem('user');
-            await AsyncStorage.removeItem('token');
-            setIsLoggedIn(false);
-            setUser(null);
+            await processLogout();
           },
         },
       ]
     );
   };
 
-  if (loading) {
+  const processLogout = async () => {
+    console.log('[LOGOUT] İşlem başlatılıyor...');
+    // Push token'ı sunucudan sil
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (token) {
+        await fetch(`${API_URL}/push-token`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      }
+    } catch (e) {
+      console.log('Push token silme hatası:', e);
+    }
+    await AsyncStorage.removeItem('user');
+    await AsyncStorage.removeItem('token');
+    setIsLoggedIn(false);
+    setUser(null);
+    console.log('[LOGOUT] Çıkış başarılı');
+  };
+
+  const toggleTheme = async () => {
+    const newVal = !isDark;
+    setIsDark(newVal);
+    await AsyncStorage.setItem('theme', newVal ? 'dark' : 'light');
+  };
+
+  const changeLanguage = async (lang) => {
+    setLanguage(lang);
+    await AsyncStorage.setItem('language', lang);
+  };
+
+  if (loading || !fontsLoaded) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="large" color="#E63946" />
-        <Text style={styles.loadingText}>Yükleniyor...</Text>
+        <Text style={[styles.loadingText, { color: theme.text }]}>Yükleniyor...</Text>
       </View>
     );
   }
 
-  if (!isLoggedIn) {
-    return <LoginScreen onLogin={(userData) => {
-      setUser(userData);
-      setIsLoggedIn(true);
-    }} />;
-  }
+  const appContent = !isLoggedIn ? (
+    <LoginScreen onLogin={(userData) => { setUser(userData); setIsLoggedIn(true); }} />
+  ) : user && (user.role === 'admin' || user.role === 'manager') ? (
+    <AdminPanel user={user} onLogout={handleLogout} />
+  ) : (
+    <MainApp user={user} onLogout={handleLogout} />
+  );
 
-  // Admin ise AdminPanel'e yönlendir
-  if (user && user.role === 'admin') {
-    return <AdminPanel user={user} onLogout={handleLogout} />;
-  }
+  return (
+    <ThemeContext.Provider value={{ theme, isDark, toggleTheme }}>
+      <LanguageContext.Provider value={{ t, language, changeLanguage }}>
+        {appContent}
+        <PWAInstallGuide />
+      </LanguageContext.Provider>
+    </ThemeContext.Provider>
+  );
+};
 
-  return <MainApp user={user} onLogout={handleLogout} />;
+// iOS PWA Kurulum Rehberi
+const PWAInstallGuide = () => {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    // Sadece iOS ve Web ise ve "Ana Ekrana Ekle" yapılmamışsa göster
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+
+    if (Platform.OS === 'web' && isIOS && !isStandalone) {
+      setShow(true);
+    }
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <View style={styles.pwaOverlay}>
+      <View style={styles.pwaModal}>
+        <View style={{ alignItems: 'center', marginBottom: 15 }}>
+          <WebIcon name="download-outline" size={40} color="#E63946" />
+          <Text style={{ fontSize: 18, fontWeight: 'bold', marginTop: 10, textAlign: 'center' }}>
+            Uygulamayı Yükleyin
+          </Text>
+        </View>
+        <Text style={{ textAlign: 'center', color: '#666', marginBottom: 20, lineHeight: 20 }}>
+          Bu uygulamayı ana ekranınıza ekleyerek tam ekran ve daha hızlı kullanabilirsiniz.
+        </Text>
+        <View style={styles.pwaStep}>
+          <WebIcon name="share-outline" size={24} color="#007AFF" />
+          <Text style={styles.pwaStepText}>1. Safari'de alttaki 'Paylaş' butonuna basın.</Text>
+        </View>
+        <View style={styles.pwaStep}>
+          <WebIcon name="add-circle-outline" size={24} color="#333" />
+          <Text style={styles.pwaStepText}>2. 'Ana Ekrana Ekle' seçeneğini seçin.</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.pwaCloseButton}
+          onPress={() => setShow(false)}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>Anladım</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 };
 // Admin Paneli ve Ayarlar
 const AdminPanel = ({ user, onLogout }) => {
@@ -95,6 +445,18 @@ const AdminPanel = ({ user, onLogout }) => {
   }
   if (currentScreen === 'couriers') {
     return <CourierManagementScreen user={user} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'locations') {
+    return <LiveLocationPanel user={user} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'reports') {
+    return <PerformanceReportsScreen user={user} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'history') {
+    return <OrderHistoryScreen user={user} onBack={() => setCurrentScreen('main')} />;
+  }
+  if (currentScreen === 'addorder') {
+    return <AddOrderScreen user={user} onBack={() => setCurrentScreen('main')} />;
   }
 
   return (
@@ -107,7 +469,7 @@ const AdminPanel = ({ user, onLogout }) => {
             <Text style={styles.headerSubtitle}>Hoşgeldin, {user.username}</Text>
           </View>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-            <Ionicons name="log-out" size={24} color="#fff" />
+            <WebIcon name="log-out" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -121,13 +483,27 @@ const AdminPanel = ({ user, onLogout }) => {
             onPress={() => setCurrentScreen('couriers')}
           >
             <View style={[styles.iconCircle, { backgroundColor: '#457B9D' }]}>
-              <Ionicons name="people" size={32} color="#fff" />
+              <WebIcon name="people" size={32} color="#fff" />
             </View>
             <View style={styles.adminCardContent}>
               <Text style={styles.adminCardTitle}>Kurye Yönetimi</Text>
               <Text style={styles.adminCardSubtitle}>Kurye ekle, düzenle, yetki ata</Text>
             </View>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            <WebIcon name="chevron-forward" size={24} color="#ccc" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.adminCard}
+            onPress={() => setCurrentScreen('locations')}
+          >
+            <View style={[styles.iconCircle, { backgroundColor: '#E63946' }]}>
+              <WebIcon name="location" size={32} color="#fff" />
+            </View>
+            <View style={styles.adminCardContent}>
+              <Text style={styles.adminCardTitle}>Canlı Konum Takibi</Text>
+              <Text style={styles.adminCardSubtitle}>Kuryelerin anlık konumlarını izle</Text>
+            </View>
+            <WebIcon name="chevron-forward" size={24} color="#ccc" />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -135,13 +511,55 @@ const AdminPanel = ({ user, onLogout }) => {
             onPress={() => setCurrentScreen('settings')}
           >
             <View style={[styles.iconCircle, { backgroundColor: '#E9C46A' }]}>
-              <Ionicons name="settings" size={32} color="#fff" />
+              <WebIcon name="settings" size={32} color="#fff" />
             </View>
             <View style={styles.adminCardContent}>
               <Text style={styles.adminCardTitle}>API Ayarları</Text>
               <Text style={styles.adminCardSubtitle}>Trendyol, Yemeksepeti, Getir entegrasyonları</Text>
             </View>
-            <Ionicons name="chevron-forward" size={24} color="#ccc" />
+            <WebIcon name="chevron-forward" size={24} color="#ccc" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.adminCard}
+            onPress={() => setCurrentScreen('reports')}
+          >
+            <View style={[styles.iconCircle, { backgroundColor: '#6C63FF' }]}>
+              <WebIcon name="bar-chart" size={32} color="#fff" />
+            </View>
+            <View style={styles.adminCardContent}>
+              <Text style={styles.adminCardTitle}>Performans Raporları</Text>
+              <Text style={styles.adminCardSubtitle}>Detaylı istatistik ve grafikler</Text>
+            </View>
+            <WebIcon name="chevron-forward" size={24} color="#ccc" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.adminCard}
+            onPress={() => setCurrentScreen('history')}
+          >
+            <View style={[styles.iconCircle, { backgroundColor: '#FF6B6B' }]}>
+              <WebIcon name="time" size={32} color="#fff" />
+            </View>
+            <View style={styles.adminCardContent}>
+              <Text style={styles.adminCardTitle}>Sipariş Geçmişi</Text>
+              <Text style={styles.adminCardSubtitle}>Tüm siparişleri ara ve filtrele</Text>
+            </View>
+            <WebIcon name="chevron-forward" size={24} color="#ccc" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.adminCard}
+            onPress={() => setCurrentScreen('addorder')}
+          >
+            <View style={[styles.iconCircle, { backgroundColor: '#2A9D8F' }]}>
+              <WebIcon name="add-circle" size={32} color="#fff" />
+            </View>
+            <View style={styles.adminCardContent}>
+              <Text style={styles.adminCardTitle}>Manuel Sipariş Ekle</Text>
+              <Text style={styles.adminCardSubtitle}>Platform dışı sipariş girişi</Text>
+            </View>
+            <WebIcon name="chevron-forward" size={24} color="#ccc" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -161,7 +579,11 @@ const CourierManagementScreen = ({ user, onBack }) => {
   const loadCouriers = async () => {
     try {
       const token = await AsyncStorage.getItem('token');
-      const response = await fetch(`${API_URL}/businesses/1/couriers`, {
+      // Business ID, user nesnesinden gelir (Manager için)
+      // Admin için fallback olarak 1 kullanılabilir veya seçim yaptırılabilir.
+      // Şimdilik manager'ın kendi businessId'sini kullanıyoruz.
+      const businessId = user.businessId || '1';
+      const response = await fetch(`${API_URL}/businesses/${businessId}/couriers`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const data = await response.json();
@@ -180,7 +602,8 @@ const CourierManagementScreen = ({ user, onBack }) => {
     }
     try {
       const token = await AsyncStorage.getItem('token');
-      const response = await fetch(`${API_URL}/businesses/1/couriers`, {
+      const businessId = user.businessId || '1';
+      const response = await fetch(`${API_URL}/businesses/${businessId}/couriers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(newCourier),
@@ -197,6 +620,27 @@ const CourierManagementScreen = ({ user, onBack }) => {
     } catch (error) {
       Alert.alert('Hata', 'Sunucuya bağlanılamadı');
     }
+  };
+
+  const renderCourierItem = (c) => {
+    const badge = getRoleBadge(c.role);
+    return (
+      <View key={c.id} style={[styles.orderCard, { flexDirection: 'row', alignItems: 'center', marginBottom: 10 }]}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>{c.name}</Text>
+            <View style={{ backgroundColor: badge.color, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+              <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>{badge.label}</Text>
+            </View>
+          </View>
+          <Text style={{ color: '#666', fontSize: 13 }}>@{c.username}</Text>
+          {c.phone ? <Text style={{ color: '#999', fontSize: 12 }}>{c.phone}</Text> : null}
+        </View>
+        <TouchableOpacity onPress={() => deactivateCourier(c.id, c.name)} style={{ padding: 8 }}>
+          <WebIcon name="trash-outline" size={22} color="#E63946" />
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   const deactivateCourier = (id, name) => {
@@ -221,6 +665,7 @@ const CourierManagementScreen = ({ user, onBack }) => {
   };
 
   const getRoleBadge = (role) => {
+    if (role === 'manager') return { label: 'Yönetici', color: '#2A9D8F' };
     if (role === 'chief') return { label: 'Kurye Şefi', color: '#E63946' };
     return { label: 'Kurye', color: '#457B9D' };
   };
@@ -230,11 +675,11 @@ const CourierManagementScreen = ({ user, onBack }) => {
       <View style={[styles.header, { backgroundColor: '#457B9D' }]}>
         <View style={styles.headerTop}>
           <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
+            <WebIcon name="arrow-back" size={24} color="#fff" />
             <Text style={[styles.headerTitle, { marginLeft: 10 }]}>Kurye Yönetimi</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowForm(!showForm)} style={{ padding: 8 }}>
-            <Ionicons name={showForm ? "close" : "add-circle"} size={28} color="#fff" />
+            <WebIcon name={showForm ? "close" : "add-circle"} size={28} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -252,12 +697,12 @@ const CourierManagementScreen = ({ user, onBack }) => {
             <TextInput style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 15 }}
               placeholder="Telefon" value={newCourier.phone} onChangeText={t => setNewCourier({ ...newCourier, phone: t })} keyboardType="phone-pad" />
 
-            <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 15 }}>Yetki:</Text>
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            <Text style={{ fontWeight: 'bold', marginBottom: 8, fontSize: 15 }}>Yetki Seviyesi:</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
               <TouchableOpacity
                 onPress={() => setNewCourier({ ...newCourier, role: 'courier' })}
                 style={{
-                  flex: 1, padding: 12, borderRadius: 8, borderWidth: 2,
+                  flex: 1, minWidth: '30%', padding: 12, borderRadius: 8, borderWidth: 2,
                   borderColor: newCourier.role === 'courier' ? '#457B9D' : '#ddd',
                   backgroundColor: newCourier.role === 'courier' ? '#EBF2F7' : '#fff'
                 }}>
@@ -266,11 +711,20 @@ const CourierManagementScreen = ({ user, onBack }) => {
               <TouchableOpacity
                 onPress={() => setNewCourier({ ...newCourier, role: 'chief' })}
                 style={{
-                  flex: 1, padding: 12, borderRadius: 8, borderWidth: 2,
+                  flex: 1, minWidth: '30%', padding: 12, borderRadius: 8, borderWidth: 2,
                   borderColor: newCourier.role === 'chief' ? '#E63946' : '#ddd',
                   backgroundColor: newCourier.role === 'chief' ? '#FDECEE' : '#fff'
                 }}>
-                <Text style={{ textAlign: 'center', fontWeight: 'bold', color: newCourier.role === 'chief' ? '#E63946' : '#999' }}>👑 Kurye Şefi</Text>
+                <Text style={{ textAlign: 'center', fontWeight: 'bold', color: newCourier.role === 'chief' ? '#E63946' : '#999' }}>👑 Şef</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setNewCourier({ ...newCourier, role: 'manager' })}
+                style={{
+                  flex: 1, minWidth: '30%', padding: 12, borderRadius: 8, borderWidth: 2,
+                  borderColor: newCourier.role === 'manager' ? '#2A9D8F' : '#ddd',
+                  backgroundColor: newCourier.role === 'manager' ? '#E9F5F3' : '#fff'
+                }}>
+                <Text style={{ textAlign: 'center', fontWeight: 'bold', color: newCourier.role === 'manager' ? '#2A9D8F' : '#999' }}>💼 Müd.</Text>
               </TouchableOpacity>
             </View>
 
@@ -281,34 +735,39 @@ const CourierManagementScreen = ({ user, onBack }) => {
         )}
 
         <View style={styles.section}>
-          {loading ? <ActivityIndicator size="large" color="#457B9D" /> : (
-            courierList.length === 0 ? (
-              <View style={{ alignItems: 'center', padding: 40 }}>
-                <Ionicons name="people-outline" size={64} color="#ccc" />
-                <Text style={{ color: '#999', marginTop: 12 }}>Henüz kurye yok</Text>
+          {loading ? (
+            <ActivityIndicator size="large" color="#457B9D" />
+          ) : courierList.length === 0 ? (
+            <View style={{ alignItems: 'center', padding: 40 }}>
+              <WebIcon name="people-outline" size={64} color="#ccc" />
+              <Text style={{ color: '#999', marginTop: 12 }}>Henüz personel yok</Text>
+            </View>
+          ) : (
+            <View>
+              {/* YÖNETİM GRUBU */}
+              <View style={{ marginBottom: 20 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                  <WebIcon name="business" size={20} color="#333" />
+                  <Text style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 8, color: '#333' }}>Yönetim & Ofis</Text>
+                </View>
+                {courierList.filter(c => c.role === 'manager' || c.role === 'chief').map(c => renderCourierItem(c))}
+                {courierList.filter(c => c.role === 'manager' || c.role === 'chief').length === 0 && (
+                  <Text style={{ color: '#999', fontSize: 12, marginLeft: 28 }}>Yönetici personeli bulunmuyor.</Text>
+                )}
               </View>
-            ) : (
-              courierList.map(c => {
-                const badge = getRoleBadge(c.role);
-                return (
-                  <View key={c.id} style={[styles.orderCard, { flexDirection: 'row', alignItems: 'center' }]}>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>{c.name}</Text>
-                        <View style={{ backgroundColor: badge.color, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
-                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>{badge.label}</Text>
-                        </View>
-                      </View>
-                      <Text style={{ color: '#666', fontSize: 13 }}>@{c.username}</Text>
-                      {c.phone ? <Text style={{ color: '#999', fontSize: 12 }}>{c.phone}</Text> : null}
-                    </View>
-                    <TouchableOpacity onPress={() => deactivateCourier(c.id, c.name)} style={{ padding: 8 }}>
-                      <Ionicons name="trash-outline" size={22} color="#E63946" />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })
-            )
+
+              {/* SAHA GRUBU */}
+              <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                  <WebIcon name="bicycle" size={20} color="#333" />
+                  <Text style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 8, color: '#333' }}>Saha / Kurye Ekibi</Text>
+                </View>
+                {courierList.filter(c => c.role === 'courier' || c.role === 'chief').map(c => renderCourierItem(c))}
+                {courierList.filter(c => c.role === 'courier' || c.role === 'chief').length === 0 && (
+                  <Text style={{ color: '#999', fontSize: 12, marginLeft: 28 }}>Aktif kurye bulunmuyor.</Text>
+                )}
+              </View>
+            </View>
           )}
         </View>
       </ScrollView>
@@ -322,12 +781,32 @@ const AdminSettingsScreen = ({ onBack }) => {
     TRENDYOL_SUPPLIER_ID: '',
     YEMEKSEPETI_API_KEY: '',
     GETIR_API_KEY: '',
+    WEBHOOK_SECRET: '',
   });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Mevcut ayarları yükle (GET isteği eklenecek)
+    loadSettings();
   }, []);
+
+  const loadSettings = async () => {
+    setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const response = await fetch(`${API_URL}/admin/settings`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success && data.data) {
+        setKeys(prev => ({ ...prev, ...data.data }));
+        // Alert.alert('Debug', 'Ayarlar sunucudan yüklendi');
+      }
+    } catch (error) {
+      console.error('Ayarlar yüklenemedi:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     setLoading(true);
@@ -343,9 +822,9 @@ const AdminSettingsScreen = ({ onBack }) => {
       });
       const data = await response.json();
       if (data.success) {
-        Alert.alert('Başarılı', 'Ayarlar kaydedildi!');
+        Alert.alert('Başarılı', 'Ayarlar veritabanına kaydedildi!');
       } else {
-        Alert.alert('Hata', 'Kaydedilemedi');
+        Alert.alert('Hata', data.message || 'Kaydedilemedi');
       }
     } catch (error) {
       Alert.alert('Hata', 'Sunucuya bağlanılamadı');
@@ -359,7 +838,7 @@ const AdminSettingsScreen = ({ onBack }) => {
       <View style={[styles.header, { backgroundColor: '#E9C46A' }]}>
         <View style={styles.headerTop}>
           <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
+            <WebIcon name="arrow-back" size={24} color="#fff" />
             <Text style={[styles.headerTitle, { marginLeft: 10 }]}>Ayarlar</Text>
           </TouchableOpacity>
         </View>
@@ -398,6 +877,23 @@ const AdminSettingsScreen = ({ onBack }) => {
             onChangeText={(t) => setKeys({ ...keys, GETIR_API_KEY: t })}
           />
 
+          <View style={{ marginTop: 25, padding: 15, backgroundColor: '#FFF9E6', borderRadius: 10, borderWidth: 1, borderColor: '#FFEAA7' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+              <WebIcon name="shield-checkmark" size={24} color="#F39C12" />
+              <Text style={{ fontSize: 16, fontWeight: 'bold', marginLeft: 10, color: '#D35400' }}>Webhook Güvenliği</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>
+              Yemek platformlarına tanımladığınız webhook adreslerini korumak için bir anahtar belirleyin. Platform tarafında "API Header" olarak gönderilmelidir.
+            </Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: '#fff', marginBottom: 0 }]}
+              placeholder="x-webhook-key için bir değer girin"
+              value={keys.WEBHOOK_SECRET}
+              onChangeText={(t) => setKeys({ ...keys, WEBHOOK_SECRET: t })}
+              secureTextEntry={true}
+            />
+          </View>
+
           <TouchableOpacity
             style={[styles.button, { backgroundColor: '#2A9D8F', marginTop: 30 }]}
             onPress={handleSave}
@@ -411,28 +907,656 @@ const AdminSettingsScreen = ({ onBack }) => {
   );
 };
 
-// Giriş Ekranı (Revize Edilmiş)
+// ============= CANLI KONUM TAKİP PANELİ =============
+const LiveLocationPanel = ({ user, onBack }) => {
+  const [locations, setLocations] = useState([]);
+  const [teamData, setTeamData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedCourier, setSelectedCourier] = useState(null);
+  const refreshInterval = useRef(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+
+      // Hem konumları hem de ekip verilerini (siparişli) paralel çek
+      const [locRes, teamRes] = await Promise.all([
+        fetch(`${API_URL}/couriers/locations`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/couriers/team`, { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+
+      const locData = await locRes.json();
+      const tData = await teamRes.json();
+
+      if (locData.success) {
+        // Konum verilerini sipariş verileriyle eşleştir
+        const combined = locData.data.map(loc => {
+          const courierInfo = tData.success ? tData.data.find(c => c.id === loc.courierId) : null;
+          return {
+            ...loc,
+            activeOrders: courierInfo ? courierInfo.activeOrders : 0,
+            orders: courierInfo ? courierInfo.orders : []
+          };
+        });
+        setLocations(combined);
+      }
+      if (tData.success) setTeamData(tData.data);
+
+    } catch (err) {
+      console.error('Veri çekme hatası:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    refreshInterval.current = setInterval(fetchData, 15000); // 15s yenile
+    return () => clearInterval(refreshInterval.current);
+  }, [fetchData]);
+
+  const getTimeSince = (dateStr) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'Az önce';
+    if (minutes < 60) return `${minutes} dk önce`;
+    return `${Math.floor(minutes / 60)} saat önce`;
+  };
+
+  const openInMaps = (lat, lng, name) => {
+    const url = Platform.select({
+      ios: `maps:?q=${name}&ll=${lat},${lng}`,
+      android: `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(name)})`,
+    });
+    Linking.canOpenURL(url)
+      .then(supported => {
+        if (supported) return Linking.openURL(url);
+        return Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
+      })
+      .catch(() => Alert.alert('Hata', 'Harita açılamadı'));
+  };
+
+  const activeLocations = locations.filter(l => !l.isStale);
+  const staleLocations = locations.filter(l => l.isStale);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#E63946" />
+      <View style={[styles.header, { backgroundColor: '#E63946' }]}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <WebIcon name="arrow-back" size={24} color="#fff" />
+            <Text style={[styles.headerTitle, { marginLeft: 10 }]}>Canlı Konum Takibi</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setLoading(true); fetchLocations(); }} style={{ padding: 8 }}>
+            <WebIcon name="refresh" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 12, gap: 12 }}>
+          <View style={{ backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#4ADE80' }} />
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{activeLocations.length} Aktif</Text>
+          </View>
+          <View style={{ backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#FCD34D' }} />
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{staleLocations.length} Çevrimdışı</Text>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView style={styles.content}>
+        {loading ? (
+          <View style={{ alignItems: 'center', padding: 60 }}>
+            <ActivityIndicator size="large" color="#E63946" />
+            <Text style={{ color: '#999', marginTop: 12 }}>Konumlar yükleniyor...</Text>
+          </View>
+        ) : locations.length === 0 ? (
+          <View style={{ alignItems: 'center', padding: 60 }}>
+            <WebIcon name="location-outline" size={80} color="#ccc" />
+            <Text style={{ color: '#999', fontSize: 16, marginTop: 12, textAlign: 'center' }}>Henüz konum verisi yok</Text>
+            <Text style={{ color: '#bbb', fontSize: 13, marginTop: 4, textAlign: 'center' }}>Kuryeler uygulamayı açtığında konumları burada görünecek</Text>
+          </View>
+        ) : (
+          <>
+            {activeLocations.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <WebIcon name="pulse" size={22} color="#4ADE80" />
+                  <Text style={styles.sectionTitle}>Aktif Kuryeler ({activeLocations.length})</Text>
+                </View>
+                {activeLocations.map(loc => (
+                  <TouchableOpacity
+                    key={loc.courierId}
+                    style={[styles.orderCard, {
+                      borderLeftWidth: 4,
+                      borderLeftColor: '#4ADE80',
+                      backgroundColor: selectedCourier === loc.courierId ? '#F0FFF4' : '#fff',
+                    }]}
+                    onPress={() => setSelectedCourier(selectedCourier === loc.courierId ? null : loc.courierId)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                        <View style={{
+                          width: 44, height: 44, borderRadius: 22,
+                          backgroundColor: loc.role === 'chief' ? '#FEE2E2' : loc.role === 'manager' ? '#E9F5F3' : '#EBF2F7',
+                          alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          <Text style={{ fontSize: 20 }}>
+                            {loc.role === 'chief' ? '👑' : loc.role === 'manager' ? '💼' : '🏍️'}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>{loc.name}</Text>
+                            {loc.activeOrders > 0 && (
+                              <View style={{ backgroundColor: '#E63946', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                                <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>{loc.activeOrders} Paket</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={{ fontSize: 12, color: '#4ADE80', fontWeight: '600' }}>● Çevrimiçi · {getTimeSince(loc.updatedAt)}</Text>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => openInMaps(loc.latitude, loc.longitude, loc.name)}
+                        style={{ backgroundColor: '#E63946', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <WebIcon name="navigate" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                    {selectedCourier === loc.courierId && (
+                      <View style={{ marginTop: 12, backgroundColor: '#F8F9FA', borderRadius: 10, padding: 12 }}>
+                        {loc.orders && loc.orders.length > 0 ? (
+                          <View style={{ marginBottom: 12 }}>
+                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#666', marginBottom: 6 }}>📦 AKTİF PAKETLER</Text>
+                            {loc.orders.map(o => (
+                              <View key={o.id} style={{ backgroundColor: '#fff', padding: 8, borderRadius: 6, marginBottom: 4, borderWidth: 1, borderColor: '#eee' }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                  <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#333' }}>{o.orderNumber}</Text>
+                                  <Text style={{ fontSize: 11, color: '#E63946', fontWeight: 'bold' }}>{o.platform}</Text>
+                                </View>
+                                <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>👤 {o.customerName}</Text>
+                                <Text style={{ fontSize: 11, color: '#999' }}>📍 {o.address}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <Text style={{ fontSize: 12, color: '#999', fontStyle: 'italic', marginBottom: 10 }}>Üzerinde aktif paket bulunmuyor.</Text>
+                        )}
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 8 }}>
+                          <Text style={{ color: '#666', fontSize: 13 }}>📍 Konum</Text>
+                          <Text style={{ color: '#333', fontSize: 13, fontWeight: '600' }}>{loc.latitude.toFixed(6)}, {loc.longitude.toFixed(6)}</Text>
+                        </View>
+                        {loc.phone && (
+                          <TouchableOpacity
+                            onPress={() => Linking.openURL(`tel:${loc.phone}`)}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}
+                          >
+                            <WebIcon name="call" size={16} color="#2A9D8F" />
+                            <Text style={{ color: '#2A9D8F', fontSize: 13, fontWeight: '600' }}>{loc.phone}</Text>
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => openInMaps(loc.latitude, loc.longitude, loc.name)}
+                          style={{ backgroundColor: '#E63946', padding: 10, borderRadius: 8, alignItems: 'center', marginTop: 10, flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                        >
+                          <WebIcon name="map" size={18} color="#fff" />
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Haritada Göster</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {staleLocations.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <WebIcon name="time" size={22} color="#FCD34D" />
+                  <Text style={styles.sectionTitle}>Çevrimdışı ({staleLocations.length})</Text>
+                </View>
+                {staleLocations.map(loc => (
+                  <View key={loc.courierId} style={[styles.orderCard, { borderLeftWidth: 4, borderLeftColor: '#FCD34D', opacity: 0.7 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#FEF3C7', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 18 }}>🔇</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#666' }}>{loc.name}</Text>
+                        <Text style={{ fontSize: 12, color: '#999' }}>Son konum: {getTimeSince(loc.updatedAt)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+// ============= PERFORMANS RAPORLARI EKRANI =============
+const PerformanceReportsScreen = ({ user, onBack }) => {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        const response = await fetch(`${API_URL}/reports/performance`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (data.success) setReport(data.data);
+      } catch (err) {
+        console.error('Rapor hatası:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchReport();
+  }, []);
+
+  const StatBox = ({ label, value, icon, color }) => (
+    <View style={{ flex: 1, backgroundColor: '#fff', borderRadius: 14, padding: 14, alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, marginHorizontal: 4 }}>
+      <WebIcon name={icon} size={24} color={color} />
+      <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#333', marginTop: 6 }}>{value}</Text>
+      <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{label}</Text>
+    </View>
+  );
+
+  const BarItem = ({ label, value, maxValue, color }) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 4 }}>
+      <Text style={{ width: 80, fontSize: 12, color: '#666' }}>{label}</Text>
+      <View style={{ flex: 1, height: 22, backgroundColor: '#F3F4F6', borderRadius: 11, overflow: 'hidden' }}>
+        <View style={{ width: `${maxValue > 0 ? (value / maxValue) * 100 : 0}%`, height: '100%', backgroundColor: color, borderRadius: 11, minWidth: value > 0 ? 20 : 0, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 8 }}>
+          {value > 0 && <Text style={{ fontSize: 10, color: '#fff', fontWeight: 'bold' }}>{value}</Text>}
+        </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#6C63FF" />
+      <View style={[styles.header, { backgroundColor: '#6C63FF' }]}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <WebIcon name="arrow-back" size={24} color="#fff" />
+            <Text style={[styles.headerTitle, { marginLeft: 10 }]}>Performans Raporları</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView style={styles.content}>
+        {loading ? (
+          <View style={{ alignItems: 'center', padding: 60 }}>
+            <ActivityIndicator size="large" color="#6C63FF" />
+          </View>
+        ) : report ? (
+          <>
+            {/* Özet Kartları */}
+            <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+              <StatBox label="Bugün" value={report.summary.todayCompleted} icon="today" color="#4ADE80" />
+              <StatBox label="Bu Hafta" value={report.summary.weekCompleted} icon="calendar" color="#6C63FF" />
+              <StatBox label="Bu Ay" value={report.summary.monthCompleted} icon="stats-chart" color="#F59E0B" />
+            </View>
+
+            <View style={{ flexDirection: 'row', marginBottom: 16 }}>
+              <StatBox label="Aktif" value={report.summary.activeOrders} icon="bicycle" color="#E63946" />
+              <StatBox label="Ort. Süre" value={`${report.summary.avgDeliveryMinutes} dk`} icon="timer" color="#2A9D8F" />
+              <StatBox label="Ort. Puan" value={`${report.avgRating.score}⭐`} icon="star" color="#F59E0B" />
+            </View>
+
+            {/* Platform Dağılımı */}
+            {report.platformStats.length > 0 && (
+              <View style={[styles.orderCard, { marginBottom: 12 }]}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 12 }}>📊 Platform Dağılımı (Bu Ay)</Text>
+                {report.platformStats.map((p, i) => (
+                  <BarItem key={i} label={p.platform} value={p.count}
+                    maxValue={Math.max(...report.platformStats.map(x => x.count))}
+                    color={p.platform.includes('Trendyol') ? '#F27A1A' : p.platform.includes('Yemeksepeti') ? '#FF6600' : p.platform.includes('Getir') ? '#5D3EBC' : '#2A9D8F'} />
+                ))}
+              </View>
+            )}
+
+            {/* Günlük Trend */}
+            {report.dailyTrend.length > 0 && (
+              <View style={[styles.orderCard, { marginBottom: 12 }]}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 12 }}>📈 Son 7 Gün</Text>
+                {report.dailyTrend.map((d, i) => {
+                  const dayName = new Date(d.date).toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric' });
+                  return <BarItem key={i} label={dayName} value={d.count}
+                    maxValue={Math.max(...report.dailyTrend.map(x => x.count))} color="#6C63FF" />;
+                })}
+              </View>
+            )}
+
+            {/* Kurye Performansları */}
+            {report.courierPerformance.length > 0 && (
+              <View style={[styles.orderCard, { marginBottom: 12 }]}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 12 }}>🏆 Kurye Sıralaması (Haftalık)</Text>
+                {report.courierPerformance.map((c, i) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: i < report.courierPerformance.length - 1 ? 1 : 0, borderBottomColor: '#F3F4F6' }}>
+                    <Text style={{ fontSize: 20, width: 36, textAlign: 'center' }}>
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`}
+                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#333' }}>{c.name}</Text>
+                      <Text style={{ fontSize: 12, color: '#999' }}>Ort. {c.avgMinutes} dk · {c.avgRating} ⭐</Text>
+                    </View>
+                    <View style={{ backgroundColor: '#6C63FF', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 4 }}>
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>{c.deliveries}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Saatlik Yoğunluk */}
+            {report.hourlyStats.length > 0 && (
+              <View style={[styles.orderCard, { marginBottom: 20 }]}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 12 }}>🕐 Bugünün Saatlik Dağılımı</Text>
+                {report.hourlyStats.map((h, i) => (
+                  <BarItem key={i} label={`${String(h.hour).padStart(2, '0')}:00`} value={h.count}
+                    maxValue={Math.max(...report.hourlyStats.map(x => x.count))} color="#2A9D8F" />
+                ))}
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={{ alignItems: 'center', padding: 60 }}>
+            <WebIcon name="alert-circle-outline" size={60} color="#ccc" />
+            <Text style={{ color: '#999', marginTop: 12 }}>Rapor verileri yüklenemedi</Text>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+// ============= SİPARİŞ GEÇMİŞİ EKRANI =============
+const OrderHistoryScreen = ({ user, onBack }) => {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
+
+  const fetchOrders = useCallback(async (pageNum = 1, searchQuery = '', statusF = '') => {
+    setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('token');
+      let url = `${API_URL}/orders/history?page=${pageNum}&limit=15`;
+      if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+      if (statusF) url += `&status=${statusF}`;
+
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setOrders(pageNum === 1 ? data.data : [...orders, ...data.data]);
+        setPagination(data.pagination);
+      }
+    } catch (err) {
+      console.error('Sipariş geçmişi hatası:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [orders]);
+
+  useEffect(() => { fetchOrders(); }, []);
+
+  const handleSearch = () => {
+    setPage(1);
+    fetchOrders(1, search, statusFilter);
+  };
+
+  const loadMore = () => {
+    if (pagination && page < pagination.pages) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      fetchOrders(nextPage, search, statusFilter);
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const map = { active: { label: 'Aktif', color: '#E63946' }, completed: { label: 'Teslim', color: '#2A9D8F' }, cancelled: { label: 'İptal', color: '#999' } };
+    const s = map[status] || { label: status, color: '#666' };
+    return (
+      <View style={{ backgroundColor: s.color, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+        <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>{s.label}</Text>
+      </View>
+    );
+  };
+
+  const filters = [
+    { label: 'Tümü', value: '' },
+    { label: 'Aktif', value: 'active' },
+    { label: 'Teslim', value: 'completed' },
+    { label: 'İptal', value: 'cancelled' },
+  ];
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#FF6B6B" />
+      <View style={[styles.header, { backgroundColor: '#FF6B6B' }]}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <WebIcon name="arrow-back" size={24} color="#fff" />
+            <Text style={[styles.headerTitle, { marginLeft: 10 }]}>Sipariş Geçmişi</Text>
+          </TouchableOpacity>
+          {pagination && <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>{pagination.total} sipariş</Text>}
+        </View>
+      </View>
+
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TextInput
+            style={{ flex: 1, backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, elevation: 1 }}
+            placeholder="Sipariş no, müşteri, adres ara..."
+            value={search}
+            onChangeText={setSearch}
+            onSubmitEditing={handleSearch}
+          />
+          <TouchableOpacity onPress={handleSearch} style={{ backgroundColor: '#FF6B6B', borderRadius: 10, width: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <WebIcon name="search" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10, marginBottom: 6 }}>
+          {filters.map(f => (
+            <TouchableOpacity key={f.value}
+              onPress={() => { setStatusFilter(f.value); setPage(1); fetchOrders(1, search, f.value); }}
+              style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16, backgroundColor: statusFilter === f.value ? '#FF6B6B' : '#F3F4F6', marginRight: 8 }}>
+              <Text style={{ color: statusFilter === f.value ? '#fff' : '#666', fontWeight: 'bold', fontSize: 13 }}>{f.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      <ScrollView style={styles.content}>
+        {loading && page === 1 ? (
+          <ActivityIndicator size="large" color="#FF6B6B" style={{ marginTop: 40 }} />
+        ) : orders.length === 0 ? (
+          <View style={{ alignItems: 'center', padding: 50 }}>
+            <WebIcon name="document-text-outline" size={60} color="#ccc" />
+            <Text style={{ color: '#999', marginTop: 12 }}>Sipariş bulunamadı</Text>
+          </View>
+        ) : (
+          <>
+            {orders.map((order, i) => (
+              <View key={order._id || i} style={[styles.orderCard, { marginBottom: 8 }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text style={{ fontWeight: 'bold', color: '#333', fontSize: 14 }}>{order.orderNumber}</Text>
+                  {getStatusBadge(order.status)}
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <Text style={{ color: '#666', fontSize: 13 }}>{order.customerName}</Text>
+                  <Text style={{ color: order.platform?.includes('Trendyol') ? '#F27A1A' : order.platform?.includes('Yemeksepeti') ? '#FF6600' : '#5D3EBC', fontSize: 12, fontWeight: 'bold' }}>{order.platform}</Text>
+                </View>
+                {order.courierName && <Text style={{ color: '#999', fontSize: 12 }}>🏍️ {order.courierName}</Text>}
+                <Text style={{ color: '#bbb', fontSize: 11, marginTop: 4 }}>
+                  {new Date(order.orderTime).toLocaleDateString('tr-TR')} {new Date(order.orderTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  {order.totalPrice ? ` · ${order.totalPrice}` : ''}
+                  {order.rating ? ` · ${order.rating}⭐` : ''}
+                </Text>
+              </View>
+            ))}
+            {pagination && page < pagination.pages && (
+              <TouchableOpacity onPress={loadMore} style={{ padding: 16, alignItems: 'center' }}>
+                {loading ? <ActivityIndicator color="#FF6B6B" /> : <Text style={{ color: '#FF6B6B', fontWeight: 'bold' }}>Daha Fazla Yükle</Text>}
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+// ============= MANUEL SİPARİŞ EKLEME EKRANI =============
+const AddOrderScreen = ({ user, onBack }) => {
+  const { theme } = React.useContext(ThemeContext); // Tema desteği eklendi
+  const { t } = React.useContext(LanguageContext); // Dil desteği eklendi
+  const [form, setForm] = useState({ customerName: '', phone: '', address: '', items: '', totalPrice: '', platform: 'Manuel' });
+  const [submitting, setSubmitting] = useState(false);
+
+  const platforms = ['Manuel', 'Telefon', 'WhatsApp', 'Diğer'];
+
+  const handleSubmit = async () => {
+    if (!form.customerName.trim() || !form.address.trim()) {
+      Alert.alert('Hata', 'Müşteri adı ve adres zorunludur');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Adresi koordinata çevir (Geocoding)
+      let latitude = 0;
+      let longitude = 0;
+      try {
+        const geocoded = await Location.geocodeAsync(form.address);
+        if (geocoded && geocoded.length > 0) {
+          latitude = geocoded[0].latitude;
+          longitude = geocoded[0].longitude;
+        }
+      } catch (geoError) {
+        console.log('Geocoding hatası:', geoError);
+        // Hata olsa bile siparişi oluşturmaya devam et
+      }
+
+      const token = await AsyncStorage.getItem('token');
+      const response = await fetch(`${API_URL}/orders/manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          ...form,
+          items: form.items ? form.items.split(',').map(i => i.trim()) : [],
+          latitude,
+          longitude,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert('Başarılı', `Sipariş oluşturuldu: ${data.data.orderNumber}`, [{ text: 'Tamam', onPress: onBack }]);
+      } else {
+        Alert.alert('Hata', data.message);
+      }
+    } catch (err) {
+      Alert.alert('Hata', 'Sunucuya bağlanılamadı');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <StatusBar barStyle="light-content" backgroundColor="#2A9D8F" />
+      <View style={[styles.header, { backgroundColor: '#2A9D8F' }]}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={onBack} style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <WebIcon name="arrow-back" size={24} color="#fff" />
+            <Text style={[styles.headerTitle, { marginLeft: 10 }]}>{t.addOrder}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView style={[styles.content, { backgroundColor: theme.bg }]}>
+        <View style={[styles.orderCard, { marginBottom: 16, backgroundColor: theme.card }]}>
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.subText, marginBottom: 6 }}>{t.platform.toUpperCase()}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {platforms.map(p => (
+              <TouchableOpacity key={p}
+                onPress={() => setForm({ ...form, platform: p })}
+                style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: form.platform === p ? '#2A9D8F' : theme.bg, borderWidth: 1, borderColor: form.platform === p ? '#2A9D8F' : theme.border }}>
+                <Text style={{ color: form.platform === p ? '#fff' : theme.text, fontWeight: 'bold', fontSize: 13 }}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.subText, marginBottom: 6 }}>{t.customerName.toUpperCase()} *</Text>
+          <TextInput style={[styles.input, { marginBottom: 12, backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]} placeholder={t.enterCustomerName} placeholderTextColor={theme.muted} value={form.customerName} onChangeText={v => setForm({ ...form, customerName: v })} />
+
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.subText, marginBottom: 6 }}>{t.phone.toUpperCase()}</Text>
+          <TextInput style={[styles.input, { marginBottom: 12, backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]} placeholder={t.enterPhone} placeholderTextColor={theme.muted} keyboardType="phone-pad" value={form.phone} onChangeText={v => setForm({ ...form, phone: v })} />
+
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.subText, marginBottom: 6 }}>{t.address.toUpperCase()} *</Text>
+          <TextInput style={[styles.input, { marginBottom: 12, minHeight: 60, backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]} placeholder={t.enterAddress} placeholderTextColor={theme.muted} multiline value={form.address} onChangeText={v => setForm({ ...form, address: v })} />
+
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.subText, marginBottom: 6 }}>{t.items.toUpperCase()} (virgülle ayırın)</Text>
+          <TextInput style={[styles.input, { marginBottom: 12, backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]} placeholder={t.enterItems} placeholderTextColor={theme.muted} value={form.items} onChangeText={v => setForm({ ...form, items: v })} />
+
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.subText, marginBottom: 6 }}>{t.total.toUpperCase()}</Text>
+          <TextInput style={[styles.input, { marginBottom: 20, backgroundColor: theme.inputBg, color: theme.text, borderColor: theme.border }]} placeholder={t.enterTotal} placeholderTextColor={theme.muted} value={form.totalPrice} onChangeText={v => setForm({ ...form, totalPrice: v })} />
+
+          <TouchableOpacity onPress={handleSubmit} disabled={submitting}
+            style={{ backgroundColor: '#2A9D8F', padding: 16, borderRadius: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8, opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? <ActivityIndicator color="#fff" /> : <WebIcon name="add-circle" size={22} color="#fff" />}
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>{t.createOrder}</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+// Giriş Ekranı (Stabilize Edilmiş v2.10.9)
 const LoginScreen = ({ onLogin }) => {
-  const [isAdmin, setIsAdmin] = useState(false); // Toggle state
+  const [isAdmin, setIsAdmin] = useState(false);
   const [businessCode, setBusinessCode] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleLogin = async () => {
-    if ((!isAdmin && !businessCode) || !username || !password) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun');
+    setError('');
+    const cleanUsername = username.trim().toLowerCase();
+    const cleanBizCode = businessCode.trim().toUpperCase();
+    const cleanPassword = password.trim();
+
+    console.log('[LOGIN] Giriş denemesi:', { isAdmin, username: cleanUsername });
+
+    if ((!isAdmin && !cleanBizCode) || !cleanUsername || !cleanPassword) {
+      setError('Lütfen tüm alanları doldurun');
       return;
     }
 
     setLoading(true);
 
     try {
-      // Endpoint seçimi: Admin ise /auth/admin-login, değilse /auth/login
       const endpoint = isAdmin ? '/auth/admin-login' : '/auth/login';
       const body = isAdmin
-        ? { username, password }
-        : { businessCode, username, password };
+        ? { username: cleanUsername, password: cleanPassword }
+        : { businessCode: cleanBizCode, username: cleanUsername, password: cleanPassword };
 
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
@@ -445,13 +1569,30 @@ const LoginScreen = ({ onLogin }) => {
       if (data.success) {
         await AsyncStorage.setItem('user', JSON.stringify(data.user));
         await AsyncStorage.setItem('token', data.token);
+
+        try {
+          const pushToken = await registerForPushNotificationsAsync();
+          if (pushToken) {
+            await fetch(`${API_URL}/push-token`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${data.token}`,
+              },
+              body: JSON.stringify({ token: pushToken }),
+            });
+          }
+        } catch (pushErr) {
+          console.log('Push token kayıt hatası:', pushErr);
+        }
+
         onLogin(data.user);
       } else {
-        Alert.alert('Hata', data.message || 'Giriş başarısız');
+        setError(data.message || 'Giriş başarısız. Bilgilerinizi kontrol edin.');
       }
-    } catch (error) {
-      Alert.alert('Hata', 'Sunucuya bağlanılamadı.');
-      console.error('Login error:', error);
+    } catch (err) {
+      setError('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.');
+      console.error('Login error:', err);
     } finally {
       setLoading(false);
     }
@@ -459,89 +1600,131 @@ const LoginScreen = ({ onLogin }) => {
 
   return (
     <SafeAreaView style={styles.loginContainer}>
-      <StatusBar barStyle="light-content" backgroundColor={isAdmin ? "#2A9D8F" : "#E63946"} />
-
-      <View style={[styles.loginHeader, { backgroundColor: isAdmin ? "#2A9D8F" : "#E63946" }]}>
-        <Ionicons name={isAdmin ? "settings" : "bicycle"} size={80} color="#fff" />
-        <Text style={[styles.loginTitle, { color: '#fff' }]}>Kurye Uygulaması</Text>
-        <Text style={[styles.loginSubtitle, { color: '#fff' }]}>
-          {isAdmin ? 'Yönetici Girişi' : 'Kurye Girişi'}
-        </Text>
-      </View>
-
-      <View style={styles.loginForm}>
-        {/* Toggle Switch */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 20 }}>
-          <TouchableOpacity
-            style={{ padding: 10, borderBottomWidth: !isAdmin ? 2 : 0, borderColor: '#E63946' }}
-            onPress={() => setIsAdmin(false)}
-          >
-            <Text style={{ fontWeight: 'bold', color: !isAdmin ? '#E63946' : '#999' }}>Kurye</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{ padding: 10, borderBottomWidth: isAdmin ? 2 : 0, borderColor: '#2A9D8F' }}
-            onPress={() => setIsAdmin(true)}
-          >
-            <Text style={{ fontWeight: 'bold', color: isAdmin ? '#2A9D8F' : '#999' }}>Yönetici</Text>
-          </TouchableOpacity>
-        </View>
-
-        {!isAdmin && (
-          <View style={styles.inputContainer}>
-            <Ionicons name="business" size={20} color="#666" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="İşletme Kodu"
-              value={businessCode}
-              onChangeText={setBusinessCode}
-              autoCapitalize="characters"
-            />
-          </View>
-        )}
-
-        <View style={styles.inputContainer}>
-          <Ionicons name="person" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Kullanıcı Adı"
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Ionicons name="lock-closed" size={20} color="#666" style={styles.inputIcon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Şifre"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.loginButton, loading && styles.loginButtonDisabled, { backgroundColor: isAdmin ? "#2A9D8F" : "#E63946" }]}
-          onPress={handleLogin}
-          disabled={loading}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="log-in" size={24} color="#fff" />
-              <Text style={styles.loginButtonText}>Giriş Yap</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+          <StatusBar barStyle="light-content" backgroundColor={isAdmin ? "#2A9D8F" : "#E63946"} />
+
+          <View style={[styles.loginHeader, { backgroundColor: isAdmin ? "#2A9D8F" : "#E63946" }]}>
+            <WebIcon name={isAdmin ? "settings" : "bicycle"} size={80} color="#fff" />
+            <Text style={[styles.loginTitle, { color: '#fff' }]}>Kurye Uygulaması</Text>
+            <Text style={[styles.loginSubtitle, { color: '#fff' }]}>
+              {isAdmin ? 'Sistem Yönetimi' : 'İşletme Girişi'}
+            </Text>
+          </View>
+
+          <View style={styles.loginForm}>
+            {/* Toggle Switch */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 25 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  borderBottomWidth: !isAdmin ? 3 : 0,
+                  borderColor: '#E63946',
+                  alignItems: 'center'
+                }}
+                onPress={() => { setIsAdmin(false); setError(''); }}
+              >
+                <Text style={{ fontWeight: 'bold', color: !isAdmin ? '#E63946' : '#999' }}>EKİP GİRİŞİ</Text>
+                <Text style={{ fontSize: 10, color: '#999' }}>Kurye / Yönetici</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  borderBottomWidth: isAdmin ? 3 : 0,
+                  borderColor: '#2A9D8F',
+                  alignItems: 'center'
+                }}
+                onPress={() => { setIsAdmin(true); setError(''); }}
+              >
+                <Text style={{ fontWeight: 'bold', color: isAdmin ? '#2A9D8F' : '#999' }}>SİSTEM ADMIN</Text>
+                <Text style={{ fontSize: 10, color: '#999' }}>Genel Paneli</Text>
+              </TouchableOpacity>
+            </View>
+
+            {error ? (
+              <View style={{ backgroundColor: '#FDECEA', padding: 12, borderRadius: 8, marginBottom: 15, borderLeftWidth: 4, borderLeftColor: '#E63946' }}>
+                <Text style={{ color: '#E63946', fontWeight: 'bold', fontSize: 13 }}>⚠️ {error}</Text>
+              </View>
+            ) : null}
+
+            {!isAdmin && (
+              <View style={styles.inputContainer}>
+                <WebIcon name="business" size={20} color="#666" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="İşletme Kodu (Örn: DEMO123)"
+                  value={businessCode}
+                  onChangeText={setBusinessCode}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+            )}
+
+            <View style={styles.inputContainer}>
+              <WebIcon name="person" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Kullanıcı Adı"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <WebIcon name="lock-closed" size={20} color="#666" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Şifre"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.loginButton,
+                loading && styles.loginButtonDisabled,
+                { backgroundColor: isAdmin ? "#2A9D8F" : "#E63946", marginTop: 10 }
+              ]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <WebIcon name="log-in" size={24} color="#fff" />
+                  <Text style={styles.loginButtonText}>Sisteme Giriş Yap</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <Text style={{ textAlign: 'center', marginTop: 30, color: '#ccc', fontSize: 10 }}>v2.10.9 - Stabilizer Fix</Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
 
 // Ana Uygulama
 const MainApp = ({ user, onLogout }) => {
+  const { theme, isDark, toggleTheme } = React.useContext(ThemeContext);
+  const { t, language, changeLanguage } = React.useContext(LanguageContext);
+  const isDarkMode = isDark;
+  const currentLang = language;
   const [orders, setOrders] = useState([]);
   const [poolOrders, setPoolOrders] = useState([]);
   const [activeOrders, setActiveOrders] = useState([]);
@@ -555,15 +1738,74 @@ const MainApp = ({ user, onLogout }) => {
     avgTime: '0 dk',
   });
 
+  const [showLocationPanel, setShowLocationPanel] = useState(false);
+  const locationWatchRef = useRef(null);
+  const [ratingModal, setRatingModal] = useState({ visible: false, orderId: null, orderNumber: '' });
+  const [selectedRating, setSelectedRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState('');
+  const [optimizedRoute, setOptimizedRoute] = useState(null);
+  const [showRoute, setShowRoute] = useState(false);
+
+  // Konum takibi başlat (kurye/şef)
+  const startLocationTracking = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Konum izni reddedildi');
+        return;
+      }
+
+      const token = await AsyncStorage.getItem('token');
+
+      // 30 saniyede bir konum güncelle
+      locationWatchRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 30000,
+          distanceInterval: 50, // 50 metre hareket edince güncelle
+        },
+        async (loc) => {
+          try {
+            await fetch(`${API_URL}/couriers/location`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              }),
+            });
+          } catch (err) {
+            console.error('Konum gönderilemedi:', err);
+          }
+        }
+      );
+    } catch (err) {
+      console.error('Konum takibi başlatılamadı:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadOrders();
     loadStats();
     if (user.role === 'chief') loadTeam();
+
+    // Uygulama açılışında UI'ı bloklamamak için gecikmeli başlat
+    const timer = setTimeout(() => {
+      startLocationTracking();
+    }, 1000);
+
     const interval = setInterval(() => {
       loadOrders();
       if (user.role === 'chief') loadTeam();
     }, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+      if (locationWatchRef.current) locationWatchRef.current.remove();
+    };
   }, []);
 
   const loadOrders = async () => {
@@ -627,6 +1869,46 @@ const MainApp = ({ user, onLogout }) => {
     }
   };
 
+  const renderTeamMember = (member) => {
+    const isChief = member.role === 'chief';
+    const isManager = member.role === 'manager';
+
+    return (
+      <View key={member.id} style={[styles.orderCard, {
+        borderLeftWidth: 3,
+        borderLeftColor: isChief ? '#E63946' : isManager ? '#2A9D8F' : '#457B9D'
+      }]}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+          <View>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>{member.name}</Text>
+            <Text style={{ fontSize: 12, color: isChief ? '#E63946' : isManager ? '#2A9D8F' : '#457B9D' }}>
+              {isChief ? '👑 Kurye Şefi' : isManager ? '💼 Yönetici' : '🏃 Kurye'}
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', color: member.activeOrders > 0 ? '#E63946' : '#2A9D8F' }}>
+              {member.activeOrders}
+            </Text>
+            <Text style={{ fontSize: 10, color: '#999' }}>Aktif Paket</Text>
+          </View>
+        </View>
+        {member.orders && member.orders.length > 0 && (
+          <View style={{ backgroundColor: '#F9F9F9', borderRadius: 8, padding: 8 }}>
+            {member.orders.map(o => (
+              <View key={o.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                <Text style={{ fontSize: 12, color: '#666' }}>{o.orderNumber} - {o.customerName}</Text>
+                <Text style={{ fontSize: 11, color: getPlatformColor(o.platform), fontWeight: 'bold' }}>{o.platform}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+        <Text style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+          Bugün {member.completedToday} teslim
+        </Text>
+      </View>
+    );
+  };
+
   const openNavigation = (order) => {
     const scheme = Platform.select({
       ios: 'maps:',
@@ -669,42 +1951,109 @@ const MainApp = ({ user, onLogout }) => {
   const deliverOrder = async (orderId) => {
     Alert.alert(
       'Sipariş Teslimi',
-      'Siparişi teslim ettiğinizi onaylıyor musunuz?',
+      'Teslimat fotoğrafı çekmek ister misiniz?',
       [
-        { text: 'İptal', style: 'cancel' },
         {
-          text: 'Evet, Teslim Et',
+          text: 'Fotoğraf Çek',
           onPress: async () => {
             try {
-              const token = await AsyncStorage.getItem('token');
-              const response = await fetch(`${API_URL}/orders/${orderId}`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  status: 'completed',
-                  courierId: user.id,
-                }),
-              });
-
-              const data = await response.json();
-              if (data.success) {
-                Alert.alert('Başarılı', 'Sipariş teslim edildi!');
-                loadOrders();
-                loadStats();
-              } else {
-                Alert.alert('Hata', data.message || 'Teslimat kaydedilemedi');
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Hata', 'Kamera izni gerekli');
+                return;
               }
-            } catch (error) {
-              Alert.alert('Hata', 'Sunucu hatası');
-              console.error('Delivery error:', error);
+              const result = await ImagePicker.launchCameraAsync({
+                quality: 0.5,
+                base64: true,
+                allowsEditing: false,
+              });
+              if (!result.canceled && result.assets[0]) {
+                const token = await AsyncStorage.getItem('token');
+                // Fotoğrafı kaydet
+                await fetch(`${API_URL}/orders/${orderId}/photo`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                  body: JSON.stringify({ photo: result.assets[0].base64.substring(0, 5000) }),
+                });
+              }
+            } catch (e) {
+              console.log('Fotoğraf hatası:', e);
             }
+            await completeDelivery(orderId);
           },
         },
+        {
+          text: 'Fotoğrafsız Teslim Et',
+          onPress: () => completeDelivery(orderId),
+        },
+        { text: 'İptal', style: 'cancel' },
       ]
     );
+  };
+
+  const completeDelivery = async (orderId) => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const response = await fetch(`${API_URL}/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status: 'completed', courierId: user.id }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        Alert.alert('Başarılı', 'Sipariş teslim edildi!');
+        loadOrders();
+        loadStats();
+        // Değerlendirme iste
+        setRatingModal({ visible: true, orderId, orderNumber: data.data?.orderNumber || '' });
+      } else {
+        Alert.alert('Hata', data.message || 'Teslimat kaydedilemedi');
+      }
+    } catch (error) {
+      Alert.alert('Hata', 'Sunucu hatası');
+    }
+  };
+
+  const submitRating = async () => {
+    if (selectedRating === 0) {
+      setRatingModal({ ...ratingModal, visible: false });
+      return;
+    }
+    try {
+      const token = await AsyncStorage.getItem('token');
+      await fetch(`${API_URL}/orders/${ratingModal.orderId}/rating`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ rating: selectedRating, comment: ratingComment }),
+      });
+      Alert.alert('Teşekkürler!', `${selectedRating} yıldız değerlendirmeniz kaydedildi.`);
+    } catch (e) {
+      console.log('Rating hatası:', e);
+    }
+    setRatingModal({ visible: false, orderId: null, orderNumber: '' });
+    setSelectedRating(0);
+    setRatingComment('');
+  };
+
+  const loadOptimizedRoute = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      const loc = await Location.getCurrentPositionAsync({});
+      const token = await AsyncStorage.getItem('token');
+      const response = await fetch(`${API_URL}/orders/optimized-route?lat=${loc.coords.latitude}&lng=${loc.coords.longitude}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success && data.data.length > 0) {
+        setOptimizedRoute(data);
+        setShowRoute(true);
+      } else {
+        Alert.alert('Bilgi', 'Optimize edilecek aktif siparişiniz yok.');
+      }
+    } catch (err) {
+      console.error('Rota hatası:', err);
+    }
   };
 
   const claimOrder = async (orderId, orderNumber) => {
@@ -745,37 +2094,37 @@ const MainApp = ({ user, onLogout }) => {
   };
 
   const OrderCard = ({ order }) => (
-    <View style={styles.orderCard}>
+    <View style={[styles.orderCard, { backgroundColor: theme.card }]}>
       <View style={[styles.platformBadge, { backgroundColor: getPlatformColor(order.platform) }]}>
         <Text style={styles.platformText}>{order.platform}</Text>
       </View>
 
       <View style={styles.orderHeader}>
-        <Text style={styles.orderNumber}>{order.orderNumber}</Text>
-        <Text style={styles.orderTime}>
+        <Text style={[styles.orderNumber, { color: theme.text }]}>{order.orderNumber}</Text>
+        <Text style={[styles.orderTime, { color: theme.subText }]}>
           {new Date(order.orderTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
         </Text>
       </View>
 
       <View style={styles.customerInfo}>
-        <Ionicons name="person" size={20} color="#333" />
-        <Text style={styles.customerName}>{order.customerName}</Text>
+        <WebIcon name="person" size={20} color={theme.text} />
+        <Text style={[styles.customerName, { color: theme.text }]}>{order.customerName}</Text>
       </View>
 
       <View style={styles.addressInfo}>
-        <Ionicons name="location" size={20} color="#E63946" />
-        <Text style={styles.address}>{order.address}</Text>
+        <WebIcon name="location" size={20} color="#E63946" />
+        <Text style={[styles.address, { color: theme.subText }]}>{order.address}</Text>
       </View>
 
       <View style={styles.itemsContainer}>
-        <Text style={styles.itemsLabel}>Ürünler:</Text>
+        <Text style={[styles.itemsLabel, { color: theme.text }]}>{t.items}:</Text>
         {order.items.map((item, index) => (
-          <Text key={index} style={styles.item}>• {item}</Text>
+          <Text key={index} style={[styles.item, { color: theme.subText }]}>• {item}</Text>
         ))}
       </View>
 
       <View style={styles.priceContainer}>
-        <Text style={styles.priceLabel}>Toplam:</Text>
+        <Text style={[styles.priceLabel, { color: theme.text }]}>{t.total}:</Text>
         <Text style={styles.price}>{order.totalPrice}</Text>
       </View>
 
@@ -784,16 +2133,16 @@ const MainApp = ({ user, onLogout }) => {
           style={[styles.button, styles.navButton]}
           onPress={() => openNavigation(order)}
         >
-          <Ionicons name="navigate" size={24} color="#fff" />
-          <Text style={styles.buttonText}>Yol Tarifi</Text>
+          <WebIcon name="navigate" size={24} color="#fff" />
+          <Text style={styles.buttonText}>{t.directions}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, styles.callButton]}
           onPress={() => callCustomer(order.phone)}
         >
-          <Ionicons name="call" size={24} color="#fff" />
-          <Text style={styles.buttonText}>Ara</Text>
+          <WebIcon name="call" size={24} color="#fff" />
+          <Text style={styles.buttonText}>{t.call}</Text>
         </TouchableOpacity>
 
         {order.status === 'active' && order.courierId === user.id && (
@@ -801,8 +2150,8 @@ const MainApp = ({ user, onLogout }) => {
             style={[styles.button, styles.deliverButton]}
             onPress={() => deliverOrder(order.id)}
           >
-            <Ionicons name="checkmark-circle" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Teslim Et</Text>
+            <WebIcon name="checkmark-circle" size={24} color="#fff" />
+            <Text style={styles.buttonText}>{t.deliver}</Text>
           </TouchableOpacity>
         )}
 
@@ -811,74 +2160,78 @@ const MainApp = ({ user, onLogout }) => {
             style={[styles.button, { backgroundColor: '#457B9D' }]}
             onPress={() => claimOrder(order.id, order.orderNumber)}
           >
-            <Ionicons name="hand-left" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Üzerime Al</Text>
+            <WebIcon name="hand-left" size={24} color="#fff" />
+            <Text style={styles.buttonText}>{t.claim}</Text>
           </TouchableOpacity>
         )}
       </View>
 
       {order.courierName && order.courierId !== user.id && (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, backgroundColor: '#EBF2F7', padding: 6, borderRadius: 6 }}>
-          <Ionicons name="person-circle" size={18} color="#457B9D" />
-          <Text style={{ color: '#457B9D', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>{order.courierName} üzerinde</Text>
+          <WebIcon name="person-circle" size={18} color="#457B9D" />
+          <Text style={{ color: '#457B9D', fontSize: 12, marginLeft: 4, fontWeight: 'bold' }}>{order.courierName} {t.onCourier}</Text>
         </View>
       )}
 
       {order.status === 'completed' && order.deliveryTime && (
         <View style={styles.completedBadge}>
-          <Ionicons name="checkmark-circle" size={18} color="#2A9D8F" />
+          <WebIcon name="checkmark-circle" size={18} color="#2A9D8F" />
           <Text style={styles.completedText}>
-            Teslim Edildi - {new Date(order.deliveryTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+            {t.deliveredMsg} - {new Date(order.deliveryTime).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>
       )}
     </View>
   );
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#E63946" />
+  if (showLocationPanel && user.role === 'chief') {
+    return <LiveLocationPanel user={user} onBack={() => setShowLocationPanel(false)} />;
+  }
 
-      <View style={styles.header}>
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <StatusBar barStyle="light-content" backgroundColor={theme.headerBg} />
+
+      <View style={[styles.header, { backgroundColor: theme.headerBg }]}>
         <View style={styles.headerTop}>
           <View>
-            <Text style={styles.headerTitle}>Kurye Uygulaması</Text>
+            <Text style={styles.headerTitle}>{t.appName}</Text>
             <Text style={styles.headerSubtitle}>{user.businessName}</Text>
           </View>
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-            <Ionicons name="log-out" size={24} color="#fff" />
+            <WebIcon name="log-out" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
 
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{stats.today}</Text>
-            <Text style={styles.statLabel}>Bugün</Text>
+            <Text style={styles.statLabel}>{t.today}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{stats.thisWeek}</Text>
-            <Text style={styles.statLabel}>Bu Hafta</Text>
+            <Text style={styles.statLabel}>{t.thisWeek}</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{stats.avgTime}</Text>
-            <Text style={styles.statLabel}>Ort. Süre</Text>
+            <Text style={styles.statLabel}>{t.avgTime}</Text>
           </View>
         </View>
       </View>
 
       <ScrollView
-        style={styles.content}
+        style={[styles.content, { backgroundColor: theme.bg }]}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.headerBg]} tintColor={theme.headerBg} />
         }
       >
         {poolOrders.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="cube" size={24} color="#F27A1A" />
-              <Text style={styles.sectionTitle}>Sipariş Havuzu ({poolOrders.length})</Text>
+              <WebIcon name="cube" size={24} color="#F27A1A" />
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{t.pool} ({poolOrders.length})</Text>
               <View style={{ marginLeft: 'auto', backgroundColor: '#F27A1A', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
                 <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>Sahipsiz</Text>
               </View>
@@ -889,13 +2242,13 @@ const MainApp = ({ user, onLogout }) => {
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="bicycle" size={24} color="#E63946" />
-            <Text style={styles.sectionTitle}>Aktif Siparişlerim ({activeOrders.length})</Text>
+            <WebIcon name="bicycle" size={24} color="#E63946" />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{t.active} ({activeOrders.length})</Text>
           </View>
 
           {activeOrders.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="checkmark-done-circle-outline" size={64} color="#ccc" />
+              <WebIcon name="checkmark-done-circle-outline" size={64} color="#ccc" />
               <Text style={styles.emptyText}>Aktif sipariş yok</Text>
               <Text style={styles.emptySubtext}>Aşağı çekerek yenileyin</Text>
             </View>
@@ -907,8 +2260,8 @@ const MainApp = ({ user, onLogout }) => {
         {completedOrders.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="checkmark-done" size={24} color="#2A9D8F" />
-              <Text style={styles.sectionTitle}>Teslim Edilenler ({completedOrders.length})</Text>
+              <WebIcon name="checkmark-done" size={24} color="#2A9D8F" />
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{t.delivered} ({completedOrders.length})</Text>
             </View>
             {completedOrders.slice(0, 5).map(order => <OrderCard key={order.id} order={order} />)}
           </View>
@@ -917,48 +2270,169 @@ const MainApp = ({ user, onLogout }) => {
         {user.role === 'chief' && (
           <View style={styles.section}>
             <TouchableOpacity
+              style={[styles.adminCard, { marginBottom: 12, backgroundColor: '#FEE2E2' }]}
+              onPress={() => setShowLocationPanel(true)}
+            >
+              <View style={[styles.iconCircle, { backgroundColor: '#E63946' }]}>
+                <WebIcon name="location" size={28} color="#fff" />
+              </View>
+              <View style={styles.adminCardContent}>
+                <Text style={styles.adminCardTitle}>Canlı Konum Takibi</Text>
+                <Text style={styles.adminCardSubtitle}>Ekibinin anlık konumlarını gör</Text>
+              </View>
+              <WebIcon name="chevron-forward" size={24} color="#E63946" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={styles.sectionHeader}
               onPress={() => setShowTeam(!showTeam)}
             >
-              <Ionicons name="people" size={24} color="#457B9D" />
+              <WebIcon name="people" size={24} color="#457B9D" />
               <Text style={styles.sectionTitle}>Ekibim ({team.length} kişi)</Text>
-              <Ionicons name={showTeam ? 'chevron-up' : 'chevron-down'} size={20} color="#666" style={{ marginLeft: 'auto' }} />
+              <WebIcon name={showTeam ? 'chevron-up' : 'chevron-down'} size={20} color="#666" style={{ marginLeft: 'auto' }} />
             </TouchableOpacity>
 
-            {showTeam && team.map(member => (
-              <View key={member.id} style={[styles.orderCard, { borderLeftWidth: 3, borderLeftColor: member.role === 'chief' ? '#E63946' : '#457B9D' }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <View>
-                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>{member.name}</Text>
-                    <Text style={{ fontSize: 12, color: member.role === 'chief' ? '#E63946' : '#457B9D' }}>
-                      {member.role === 'chief' ? '👑 Kurye Şefi' : '🏃 Kurye'}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ fontSize: 18, fontWeight: 'bold', color: member.activeOrders > 0 ? '#E63946' : '#2A9D8F' }}>
-                      {member.activeOrders}
-                    </Text>
-                    <Text style={{ fontSize: 10, color: '#999' }}>Aktif Paket</Text>
-                  </View>
+            {showTeam && (
+              <View>
+                {/* YÖNETİM GRUBU */}
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#666', marginBottom: 8, marginLeft: 4 }}>💼 YÖNETİM VE OFİS</Text>
+                  {team.filter(m => m.role === 'manager' || m.role === 'chief').length === 0 ? (
+                    <Text style={{ fontSize: 12, color: '#999', marginLeft: 12 }}>Yönetici personeli bulunmuyor.</Text>
+                  ) : (
+                    team.filter(m => m.role === 'manager' || m.role === 'chief').map(member => renderTeamMember(member))
+                  )}
                 </View>
-                {member.orders && member.orders.length > 0 && (
-                  <View style={{ backgroundColor: '#F9F9F9', borderRadius: 8, padding: 8 }}>
-                    {member.orders.map(o => (
-                      <View key={o.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                        <Text style={{ fontSize: 12, color: '#666' }}>{o.orderNumber} - {o.customerName}</Text>
-                        <Text style={{ fontSize: 11, color: getPlatformColor(o.platform), fontWeight: 'bold' }}>{o.platform}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-                <Text style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
-                  Bugün {member.completedToday} teslim
-                </Text>
+
+                {/* SAHA GRUBU */}
+                <View>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#666', marginBottom: 8, marginLeft: 4 }}>🏍️ SAHA VE KURYE EKİBİ</Text>
+                  {team.filter(m => m.role === 'courier' || m.role === 'chief').length === 0 ? (
+                    <Text style={{ fontSize: 12, color: '#999', marginLeft: 12 }}>Aktif kurye bulunmuyor.</Text>
+                  ) : (
+                    team.filter(m => m.role === 'courier' || m.role === 'chief').map(member => renderTeamMember(member))
+                  )}
+                </View>
               </View>
-            ))}
+            )}
           </View>
         )}
+
+
+        <View style={{ marginTop: 16, marginBottom: 20 }}>
+          <Text style={[styles.sectionTitle, { marginBottom: 12, color: theme.text }]}>⚙️ {t.settings}</Text>
+
+          <View style={[styles.orderCard, { marginBottom: 8, backgroundColor: theme.card }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <WebIcon name={isDarkMode ? 'moon' : 'sunny'} size={22} color={isDarkMode ? '#F59E0B' : '#F97316'} />
+                <Text style={{ fontSize: 15, fontWeight: 'bold', color: theme.text }}>{t.darkMode}</Text>
+              </View>
+              <TouchableOpacity onPress={toggleTheme}
+                style={{ width: 50, height: 28, borderRadius: 14, backgroundColor: isDarkMode ? '#6C63FF' : '#E5E7EB', justifyContent: 'center', padding: 2 }}>
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff', alignSelf: isDarkMode ? 'flex-end' : 'flex-start' }} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={[styles.orderCard, { backgroundColor: theme.card }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <WebIcon name="language" size={22} color="#6C63FF" />
+              <Text style={{ fontSize: 15, fontWeight: 'bold', color: theme.text }}>{t.language} / Language</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {[{ code: 'tr', label: '🇹🇷 Türkçe' }, { code: 'en', label: '🇬🇧 English' }, { code: 'ar', label: '🇸🇦 العربية' }].map(lang => (
+                <TouchableOpacity key={lang.code}
+                  onPress={() => changeLanguage(lang.code)}
+                  style={{ flex: 1, paddingVertical: 8, borderRadius: 10, backgroundColor: currentLang === lang.code ? '#6C63FF' : theme.bg, alignItems: 'center', borderWidth: 1, borderColor: theme.border }}>
+                  <Text style={{ color: currentLang === lang.code ? '#fff' : theme.text, fontWeight: 'bold', fontSize: 12 }}>{lang.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
       </ScrollView>
+
+      {/* Rota Optimizasyonu Butonu */}
+      {activeOrders.length > 1 && (
+        <TouchableOpacity onPress={loadOptimizedRoute}
+          style={{ position: 'absolute', bottom: 16, right: 16, backgroundColor: '#6C63FF', borderRadius: 28, width: 56, height: 56, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#6C63FF', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { height: 3 } }}>
+          <WebIcon name="navigate" size={26} color="#fff" />
+        </TouchableOpacity>
+      )}
+
+      {/* Rota Optimizasyonu Paneli */}
+      {showRoute && optimizedRoute && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '70%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <View>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#333' }}>🗺️ Optimize Rota</Text>
+                <Text style={{ fontSize: 13, color: '#999' }}>Toplam: {optimizedRoute.totalDistance} · {optimizedRoute.orderCount} durak</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowRoute(false)}>
+                <WebIcon name="close-circle" size={28} color="#ccc" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              {optimizedRoute.data.map((stop, i) => (
+                <View key={stop.orderId} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: i < optimizedRoute.data.length - 1 ? 1 : 0, borderBottomColor: '#F3F4F6' }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#6C63FF', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>{i + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: 'bold', color: '#333', fontSize: 14 }}>{stop.customerName}</Text>
+                    <Text style={{ color: '#999', fontSize: 12 }}>{stop.address?.substring(0, 50)}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: '#6C63FF', fontWeight: 'bold', fontSize: 13 }}>{stop.distance}</Text>
+                    <TouchableOpacity onPress={() => { Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${stop.latitude},${stop.longitude}`); }}>
+                      <Text style={{ color: '#E63946', fontSize: 11, fontWeight: 'bold' }}>Yol Tarifi →</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* Değerlendirme Modal */}
+      {ratingModal.visible && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 30 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', maxWidth: 340, alignItems: 'center' }}>
+            <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 6 }}>⭐ Değerlendir</Text>
+            <Text style={{ fontSize: 13, color: '#999', marginBottom: 16 }}>{ratingModal.orderNumber}</Text>
+
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              {[1, 2, 3, 4, 5].map(star => (
+                <TouchableOpacity key={star} onPress={() => setSelectedRating(star)}>
+                  <WebIcon name={star <= selectedRating ? 'star' : 'star-outline'} size={36} color={star <= selectedRating ? '#F59E0B' : '#ddd'} />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={{ width: '100%', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, fontSize: 14, minHeight: 60, textAlignVertical: 'top', marginBottom: 16 }}
+              placeholder="Yorum ekle (isteğe bağlı)"
+              multiline
+              value={ratingComment}
+              onChangeText={setRatingComment}
+            />
+
+            <View style={{ flexDirection: 'row', gap: 10, width: '100%' }}>
+              <TouchableOpacity onPress={() => { setRatingModal({ visible: false, orderId: null, orderNumber: '' }); setSelectedRating(0); }}
+                style={{ flex: 1, padding: 12, borderRadius: 10, backgroundColor: '#F3F4F6', alignItems: 'center' }}>
+                <Text style={{ color: '#999', fontWeight: 'bold' }}>Geç</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={submitRating}
+                style={{ flex: 1, padding: 12, borderRadius: 10, backgroundColor: '#F59E0B', alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Gönder</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1290,6 +2764,44 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 14,
     color: '#ccc',
+  },
+  pwaOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+    zIndex: 9999,
+  },
+  pwaModal: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 25,
+    paddingBottom: 40,
+  },
+  pwaStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    backgroundColor: '#F8F9FA',
+    padding: 12,
+    borderRadius: 10,
+  },
+  pwaStepText: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+    marginLeft: 12,
+  },
+  pwaCloseButton: {
+    backgroundColor: '#E63946',
+    padding: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
   },
 });
 
