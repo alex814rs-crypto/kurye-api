@@ -411,7 +411,7 @@ app.get('/api/couriers/team', authenticateToken, async (req, res) => {
 
       return {
         id: c._id.toString(),
-        name: c.name,
+        name: c.name || c.username, // İsim yoksa kullanıcı adı göster
         phone: c.phone,
         role: c.role,
         latitude: c.latitude,
