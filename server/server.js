@@ -1328,33 +1328,7 @@ app.post('/api/debug/seed', async (req, res) => {
   }
 });
 
-// ============= START SERVER =============
 
-const startServer = async () => {
-  await connectDB();
-  await loadSettings(); // Ayarları yükle
-
-  app.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda çalışıyor (v2.10 - API Keys Enabled)`);
-    console.log(`Erişim: http://localhost:${PORT}`);
-    console.log(`
-╔════════════════════════════════════════════════════════════╗
-║                                                            ║
-║   🚀 KURYE UYGULAMASI - BACKEND SERVER                    ║
-║                                                            ║
-║   Server Adresi: http://localhost:${PORT}                     ║
-║   Veritabanı: MongoDB Atlas ✅                             ║
-║                                                            ║
-║   📊 Demo Hesaplar:                                        ║
-║   ├─ Admin: admin / admin123                              ║
-║   ├─ İşletme Kodu: DEMO123                                ║
-║   ├─ Kurye: kurye1 / 1234                                 ║
-║   └─ Kurye Şefi: sef1 / 1234                              ║
-║                                                            ║
-╚════════════════════════════════════════════════════════════╝
-    `);
-  });
-};
 
 // ============= STARTUP & ERROR HANDLING =============
 
