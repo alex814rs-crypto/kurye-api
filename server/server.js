@@ -1368,6 +1368,29 @@ const startServer = async () => {
     await loadSettings();
     console.log('[STARTUP] Ayarlar yüklendi.');
 
+    // Kurye konumlarını hafızaya yükle
+    try {
+      const couriers = await Courier.find({ isActive: true, role: { $in: ['courier', 'chief'] } }).select('_id name phone role businessId latitude longitude lastUpdate');
+      couriers.forEach(c => {
+        if (c.latitude && c.longitude) {
+          courierLocations.set(c._id.toString(), {
+            courierId: c._id.toString(),
+            name: c.name,
+            phone: c.phone,
+            role: c.role,
+            businessId: c.businessId.toString(),
+            latitude: c.latitude,
+            longitude: c.longitude,
+            updatedAt: c.lastUpdate ? new Date(c.lastUpdate).toISOString() : new Date().toISOString(),
+          });
+        }
+      });
+      console.log(`[STARTUP] ${couriers.length} kurye konumu hafızaya yüklendi.`);
+    } catch (locError) {
+      console.error('[STARTUP WARNING] Konumlar yüklenemedi:', locError.message);
+    }
+
+
   } catch (error) {
     console.error('================================================');
     console.error('[STARTUP ERROR] Kritik servisler başlatılamadı!');
