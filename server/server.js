@@ -932,26 +932,42 @@ app.get('/api/couriers/locations', authenticateToken, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Bu özellik sadece admin, yönetici ve kurye şefleri içindir' });
     }
 
-    const locations = [];
     const now = Date.now();
-    const STALE_THRESHOLD = 30 * 60 * 1000; // 30 dakika (Test için süreyi artırdım)
+    const STALE_THRESHOLD = 30 * 60 * 1000; // 30 dakika
 
     console.log(`[LOCATIONS FETCH] Requestor: ${req.user.name} Business: ${req.user.businessId}`);
-    console.log(`[LOCATIONS FETCH] Total in Map: ${courierLocations.size}`);
 
-    courierLocations.forEach((loc, id) => {
-      // Debug için log
-      // console.log(`[CHECK] CourierBiz: ${loc.businessId} vs UserBiz: ${req.user.businessId}`);
+    // DB'den aktif kuryeleri çek (Memory Map yerine)
+    const query = { isActive: true };
+    // Yönetici/Şef sadece kendi işletmesini görür
+    if (req.user.role === 'chief' || req.user.role === 'manager') {
+      query.businessId = req.user.businessId;
+    }
 
-      // İşletme filtresi (şef ve yönetici sadece kendi işletmesini görür)
-      if ((req.user.role === 'chief' || req.user.role === 'manager') && loc.businessId !== req.user.businessId) return;
+    const activeCouriers = await Courier.find(query).select('name phone role businessId latitude longitude lastUpdate');
 
-      // Eski konumları işaretle
-      const isStale = (now - new Date(loc.updatedAt).getTime()) > STALE_THRESHOLD;
-      locations.push({ ...loc, isStale });
-    });
+    console.log(`[LOCATIONS DB] Found ${activeCouriers.length} in DB`);
 
-    console.log(`[LOCATIONS FETCH] Returning ${locations.length} locations`);
+    const locations = activeCouriers
+      .filter(c => c.latitude && c.longitude) // Konumu olanları al
+      .map(c => {
+        const updatedAt = c.lastUpdate ? new Date(c.lastUpdate) : new Date(0);
+        const isStale = (now - updatedAt.getTime()) > STALE_THRESHOLD;
+
+        return {
+          courierId: c._id,
+          name: c.name,
+          phone: c.phone,
+          role: c.role,
+          businessId: c.businessId,
+          latitude: c.latitude,
+          longitude: c.longitude,
+          updatedAt: c.lastUpdate,
+          isStale
+        };
+      });
+
+    console.log(`[LOCATIONS FETCH] Returning ${locations.length} valid locations`);
     res.json({ success: true, data: locations, count: locations.length });
   } catch (err) {
     console.error('[LOCATION ERROR]', err.message);
