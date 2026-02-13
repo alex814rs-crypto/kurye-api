@@ -269,6 +269,44 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   // AGRESİF FONT ENJEKSİYONU KALDIRILDI - WEB-ICON BİLEŞENİ ARTIK YETERLİ
 }
 
+
+// Hata Sınırı Bileşeni (ErrorBoundary)
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#E63946', marginBottom: 10 }}>Bir hata oluştu!</Text>
+          <Text style={{ color: '#333', textAlign: 'center', marginHorizontal: 20, marginBottom: 20 }}>
+            {this.state.error?.toString()}
+          </Text>
+          <TouchableOpacity
+            onPress={() => { this.setState({ hasError: false }); if (this.props.onReset) this.props.onReset(); }}
+            style={{ backgroundColor: '#2A9D8F', padding: 12, borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>Tekrar Dene</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 // Ana Uygulama
 const App = () => {
   const [fontsLoaded, setFontsLoaded] = useState(false);
@@ -276,12 +314,8 @@ const App = () => {
   useEffect(() => {
     async function loadFonts() {
       try {
-        // Web'de font yüklemeye gerek yok (emojiler devrede)
-        if (Platform.OS !== 'web') {
-          await Font.loadAsync({
-            'Ionicons': 'https://cdn.jsdelivr.net/npm/ionicons@6.0.3/dist/fonts/ionicons.ttf',
-          });
-        }
+        // Native'de fontlar otomatik yüklenir veya build içine gömülüdür.
+        // Web'de veya özel durumlarda buraya ekleme yapılabilir.
         setFontsLoaded(true);
       } catch (e) {
         console.warn('Font loading error:', e);
@@ -419,7 +453,9 @@ const App = () => {
   return (
     <ThemeContext.Provider value={{ theme, isDark, toggleTheme }}>
       <LanguageContext.Provider value={{ t, language, changeLanguage }}>
-        {appContent}
+        <ErrorBoundary onReset={() => { setIsLoggedIn(false); setUser(null); }}>
+          {appContent}
+        </ErrorBoundary>
         <PWAInstallGuide />
       </LanguageContext.Provider>
     </ThemeContext.Provider>
@@ -432,11 +468,12 @@ const PWAInstallGuide = () => {
 
   useEffect(() => {
     // Sadece iOS ve Web ise ve "Ana Ekrana Ekle" yapılmamışsa göster
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-
-    if (Platform.OS === 'web' && isIOS && !isStandalone) {
-      setShow(true);
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof navigator !== 'undefined') {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+      if (isIOS && !isStandalone) {
+        setShow(true);
+      }
     }
   }, []);
 
