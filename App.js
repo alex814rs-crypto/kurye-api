@@ -1000,6 +1000,17 @@ const LiveLocationPanel = ({ user, onBack }) => {
   };
 
   const openInMaps = (lat, lng, name) => {
+    if (Platform.OS === 'web') {
+      const safeLat = parseFloat(lat);
+      const safeLng = parseFloat(lng);
+      const url = `https://www.google.com/maps/search/?api=1&query=${safeLat},${safeLng}`;
+
+      if (window.confirm(`Konum: ${safeLat}, ${safeLng}\nHaritada açmak istiyor musunuz?`)) {
+        window.open(url, '_blank');
+      }
+      return;
+    }
+
     const url = Platform.select({
       ios: `maps:?q=${name}&ll=${lat},${lng}`,
       android: `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(name)})`,
@@ -1012,8 +1023,11 @@ const LiveLocationPanel = ({ user, onBack }) => {
       .catch(() => Alert.alert('Hata', 'Harita açılamadı'));
   };
 
-  const activeLocations = locations.filter(l => !l.isStale);
-  const staleLocations = locations.filter(l => l.isStale);
+  const sortedLocations = [...locations].sort((a, b) => {
+    // Önce aktifleri, sonra yenileri göster
+    if (a.isStale !== b.isStale) return a.isStale ? 1 : -1;
+    return new Date(b.updatedAt) - new Date(a.updatedAt);
+  });
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1031,11 +1045,7 @@ const LiveLocationPanel = ({ user, onBack }) => {
         <View style={{ flexDirection: 'row', paddingHorizontal: 20, paddingBottom: 12, gap: 12 }}>
           <View style={{ backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#4ADE80' }} />
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{activeLocations.length} Aktif</Text>
-          </View>
-          <View style={{ backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#FCD34D' }} />
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{staleLocations.length} Çevrimdışı</Text>
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{locations.length} Kurye</Text>
           </View>
         </View>
       </View>
@@ -1054,19 +1064,20 @@ const LiveLocationPanel = ({ user, onBack }) => {
           </View>
         ) : (
           <>
-            {activeLocations.length > 0 && (
+            {sortedLocations.length > 0 && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <WebIcon name="pulse" size={22} color="#4ADE80" />
                   <Text style={styles.sectionTitle}>Aktif Kuryeler ({activeLocations.length})</Text>
                 </View>
-                {activeLocations.map(loc => (
+                {sortedLocations.map(loc => (
                   <TouchableOpacity
                     key={loc.courierId}
                     style={[styles.orderCard, {
                       borderLeftWidth: 4,
-                      borderLeftColor: '#4ADE80',
+                      borderLeftColor: loc.isStale ? '#9CA3AF' : '#4ADE80',
                       backgroundColor: selectedCourier === loc.courierId ? '#F0FFF4' : '#fff',
+                      opacity: loc.isStale ? 0.9 : 1
                     }]}
                     onPress={() => setSelectedCourier(selectedCourier === loc.courierId ? null : loc.courierId)}
                     activeOpacity={0.7}
@@ -1091,12 +1102,14 @@ const LiveLocationPanel = ({ user, onBack }) => {
                               </View>
                             )}
                           </View>
-                          <Text style={{ fontSize: 12, color: '#4ADE80', fontWeight: '600' }}>● Çevrimiçi · {getTimeSince(loc.updatedAt)}</Text>
+                          <Text style={{ fontSize: 12, color: loc.isStale ? '#6B7280' : '#4ADE80', fontWeight: '600' }}>
+                            ● {loc.isStale ? 'Çevrimdışı' : 'Çevrimiçi'} · {getTimeSince(loc.updatedAt)}
+                          </Text>
                         </View>
                       </View>
                       <TouchableOpacity
                         onPress={() => openInMaps(loc.latitude, loc.longitude, loc.name)}
-                        style={{ backgroundColor: '#E63946', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
+                        style={{ backgroundColor: '#007AFF', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
                       >
                         <WebIcon name="navigate" size={20} color="#fff" />
                       </TouchableOpacity>
@@ -1148,27 +1161,7 @@ const LiveLocationPanel = ({ user, onBack }) => {
               </View>
             )}
 
-            {staleLocations.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <WebIcon name="time" size={22} color="#FCD34D" />
-                  <Text style={styles.sectionTitle}>Çevrimdışı ({staleLocations.length})</Text>
-                </View>
-                {staleLocations.map(loc => (
-                  <View key={loc.courierId} style={[styles.orderCard, { borderLeftWidth: 4, borderLeftColor: '#FCD34D', opacity: 0.7 }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#FEF3C7', alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ fontSize: 18 }}>🔇</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#666' }}>{loc.name}</Text>
-                        <Text style={{ fontSize: 12, color: '#999' }}>Son konum: {getTimeSince(loc.updatedAt)}</Text>
-                      </View>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
+
           </>
         )}
       </ScrollView>
@@ -1779,7 +1772,10 @@ const openMap = (latitude, longitude, address, label) => {
   }
 
   if (Platform.OS === 'web') {
-    window.open(universalUrl, '_blank');
+    const userConfirmed = window.confirm(`Harita açılıyor: ${universalUrl}\nDevam edilsin mi?`);
+    if (userConfirmed) {
+      window.open(universalUrl, '_blank');
+    }
     return;
   }
 
@@ -2184,16 +2180,15 @@ const MainApp = ({ user, onLogout }) => {
     console.log('[WEB DEBUG] Deliver button pressed for:', orderId);
     if (Platform.OS === 'web') {
       console.log('[WEB DEBUG] Platform detected as WEB');
-      try {
-        const confirm = window.confirm('Siparişi teslim etmek istiyor musunuz?');
-        console.log('[WEB DEBUG] Window confirm result:', confirm);
-        if (confirm) {
-          await completeDelivery(orderId);
-        }
-      } catch (e) {
-        console.error('[WEB DEBUG] Window confirm error:', e);
-        // Fallback
-        await completeDelivery(orderId);
+      // Basit web onayı
+      if (window.confirm('Siparişi teslim etmek istiyor musunuz?')) {
+        console.log('[WEB DEBUG] User confirmed. Calling completeDelivery...');
+        completeDelivery(orderId).catch(err => {
+          console.error('[WEB DEBUG] completeDelivery failed:', err);
+          alert('Teslimat sırasında bir hata oluştu: ' + err.message);
+        });
+      } else {
+        console.log('[WEB DEBUG] User cancelled.');
       }
       return;
     }
