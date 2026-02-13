@@ -1117,6 +1117,9 @@ const LiveLocationPanel = ({ user, onBack }) => {
                 <View style={styles.sectionHeader}>
                   <WebIcon name="pulse" size={22} color="#4ADE80" />
                   <Text style={styles.sectionTitle}>Aktif Kuryeler ({activeLocations.length})</Text>
+                  <TouchableOpacity onPress={startLocationTracking} style={{ marginLeft: 'auto', backgroundColor: '#E63946', padding: 5, borderRadius: 5 }}>
+                    <Text style={{ color: '#fff', fontSize: 10 }}>Konumu Zorla</Text>
+                  </TouchableOpacity>
                 </View>
                 {sortedLocations.map(loc => (
                   <TouchableOpacity
