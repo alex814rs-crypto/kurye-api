@@ -454,7 +454,9 @@ const App = () => {
     <ThemeContext.Provider value={{ theme, isDark, toggleTheme }}>
       <LanguageContext.Provider value={{ t, language, changeLanguage }}>
         <ErrorBoundary onReset={() => { setIsLoggedIn(false); setUser(null); }}>
-          {appContent}
+          <View key={isLoggedIn ? 'loggedin' : 'loggedout'} style={{ flex: 1 }}>
+            {appContent}
+          </View>
         </ErrorBoundary>
         <PWAInstallGuide />
       </LanguageContext.Provider>
