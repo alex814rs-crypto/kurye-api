@@ -1746,32 +1746,91 @@ const MainApp = ({ user, onLogout }) => {
   const [optimizedRoute, setOptimizedRoute] = useState(null);
   const [showRoute, setShowRoute] = useState(false);
 
+  import * as TaskManager from 'expo-task-manager';
+
+  const LOCATION_TASK_NAME = 'background-location-task';
+
+  // Arka plan görevi tanımla (Component dışında olmalı)
+  TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+    if (error) {
+      console.error('[BACKGROUND LOCATION] Task Error:', error);
+      return;
+    }
+    if (data) {
+      const { locations } = data;
+      const location = locations[0];
+      if (location) {
+        try {
+          const token = await AsyncStorage.getItem('token');
+          if (!token) return;
+
+          // API URL'yi App component dışından almak zor olabilir, hardcode veya global değişken kullanılabilir.
+          // Ancak en temizi fetch içinde tam URL kullanmaktır.
+          await fetch('https://kurye-api-production.up.railway.app/api/couriers/location', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            }),
+          });
+          console.log('[BACKGROUND LOCATION] Sent:', location.coords.latitude, location.coords.longitude);
+        } catch (err) {
+          console.error('[BACKGROUND LOCATION] Network Error:', err);
+        }
+      }
+    }
+  });
+
+  // ... (App Component continues)
+
   // Konum takibi başlat (kurye/şef)
   const startLocationTracking = useCallback(async () => {
-    console.log('[WEB DEBUG] Starting location tracking...');
+    console.log('[LOCATION] Starting tracking service...');
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      console.log('[WEB DEBUG] Location permission status:', status);
-      if (status !== 'granted') {
-        console.log('Konum izni reddedildi');
-        if (Platform.OS === 'web') {
-          alert('Konum izni verilmediği için harita çalışmayabilir.');
-        }
+      // 1. İzinleri al (Foreground + Background)
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') {
+        console.log('Ön plan konum izni yok');
+        if (Platform.OS === 'web') alert('Konum izni gerekli');
         return;
       }
 
+      // Sadece mobilde arka plan izni iste
+      if (Platform.OS !== 'web') {
+        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+        if (bgStatus === 'granted') {
+          console.log('[LOCATION] Background permission granted');
+          await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 30000, // 30 sn
+            distanceInterval: 50, // 50 metre
+            deferredUpdatesInterval: 30000,
+            deferredUpdatesDistance: 50,
+            foregroundService: {
+              notificationTitle: "Kurye Takip",
+              notificationBody: "Konumunuz paylaşılıyor",
+              notificationColor: "#FF385C"
+            }
+          });
+        }
+      }
+
+      // Ön plan takibi (Web ve Mobil için ortak yedek)
       const token = await AsyncStorage.getItem('token');
-      console.log('[WEB DEBUG] Token found for location tracking');
-
-
-      // 30 saniyede bir konum güncelle
       locationWatchRef.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
           timeInterval: 30000,
-          distanceInterval: 50, // 50 metre hareket edince güncelle
+          distanceInterval: 50,
         },
         async (loc) => {
+          // Zaten arka plan görevi çalışıyorsa mobilde bunu göndermeyebiliriz, 
+          // ama çakışma olmaması için basit bir check veya double-send kabul edilebilir.
+          // Basitlik adına: Web için kesin gerekli, mobil için foreground yedeği.
           try {
             await fetch(`${API_URL}/couriers/location`, {
               method: 'POST',
@@ -1784,13 +1843,11 @@ const MainApp = ({ user, onLogout }) => {
                 longitude: loc.coords.longitude,
               }),
             });
-          } catch (err) {
-            console.error('Konum gönderilemedi:', err);
-          }
+          } catch (err) { console.error('Foreground location error:', err); }
         }
       );
     } catch (err) {
-      console.error('Konum takibi başlatılamadı:', err);
+      console.error('Konum servisi başlatılamadı:', err);
     }
   }, []);
 

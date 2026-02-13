@@ -643,6 +643,10 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
   }
 });
 
+const PlatformAPI = require('./services/platformAPI'); // Platform API servisi eklendi
+
+// ...
+
 // Sipariş güncelle
 app.patch('/api/orders/:id', authenticateToken, async (req, res) => {
   try {
@@ -650,11 +654,28 @@ app.patch('/api/orders/:id', authenticateToken, async (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: 'Sipariş bulunamadı' });
 
     const { status, courierId } = req.body;
+
+    // Eski durumdan farklı bir durum geliyorsa ve tamamlandıysa işlem yap
+    const isCompleting = status === 'completed' && order.status !== 'completed';
+
     if (status) order.status = status;
     if (courierId) order.courierId = courierId;
 
-    if (status === 'completed') {
+    if (isCompleting) {
       order.deliveryTime = new Date();
+
+      // Platform Entegrasyonu: Arka planda ilgili platforma bildir
+      // İşletme bilgilerini (API Keyler için) çekmemiz gerek
+      const business = await Business.findById(order.businessId);
+      if (business) {
+        if (order.platform === 'Trendyol Yemek') {
+          PlatformAPI.updateTrendyol(order, business).catch(e => console.error('[PLATFORM SYNC] Trendyol update failed:', e));
+        } else if (order.platform === 'Yemeksepeti') {
+          PlatformAPI.updateYemeksepeti(order, business).catch(e => console.error('[PLATFORM SYNC] Yemeksepeti update failed:', e));
+        } else if (order.platform === 'Getir Yemek') {
+          PlatformAPI.updateGetir(order, business).catch(e => console.error('[PLATFORM SYNC] Getir update failed:', e));
+        }
+      }
     }
 
     await order.save();
