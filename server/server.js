@@ -126,7 +126,7 @@ const getRoleTokens = (businessId, role) => {
 };
 
 // Statik dosyaları sun (public klasörü) - Önbellek Engelleme
-app.use(express.static('public', {
+app.use(express.static(require('path').join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
   setHeaders: (res, path) => {
