@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.18';
+const APP_VERSION = '2.10.19';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -230,6 +230,9 @@ const WebIcon = ({ name, size, color, style }) => {
     'close-circle': '⭕',
     'checkmark-done': '✅',
     'checkmark-done-circle-outline': '✔️',
+    'chevron-back': '⬅️',
+    'refresh': '🔄',
+    'arrow-back': '⬅️',
   };
 
   return (
