@@ -27,7 +27,7 @@ import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
-const APP_VERSION = '2.10.13';
+const APP_VERSION = '2.10.14';
 
 const LOCATION_TASK_NAME = 'background-location-task';
 
@@ -2423,9 +2423,17 @@ const MainApp = ({ user, onLogout }) => {
             <Text style={styles.headerTitle}>{user.role === 'manager' ? 'Ekip Paneli' : user.role === 'chief' ? 'Şef Paneli' : 'Kurye Paneli'}</Text>
             <Text style={styles.headerSubtitle}>{user.name} (v{APP_VERSION})</Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity onPress={startLocationTracking} style={{ padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20 }}>
-              <WebIcon name="navigate" size={20} color="#fff" />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={startLocationTracking}
+              style={{
+                flexDirection: 'row', alignItems: 'center',
+                padding: 8, backgroundColor: '#fff',
+                borderRadius: 20, marginRight: 10
+              }}
+            >
+              <WebIcon name="navigate" size={18} color={theme.headerBg} />
+              <Text style={{ color: theme.headerBg, fontWeight: 'bold', fontSize: 11, marginLeft: 4 }}>KONUM</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
               <WebIcon name="log-out" size={24} color="#fff" />
