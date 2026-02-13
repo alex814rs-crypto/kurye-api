@@ -23,9 +23,45 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
+import * as TaskManager from 'expo-task-manager';
 
 // API Configuration
 const API_URL = 'https://kurye-api-production.up.railway.app/api';
+
+const LOCATION_TASK_NAME = 'background-location-task';
+
+// Arka plan görevi tanımla
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+  if (error) {
+    console.error('[BACKGROUND LOCATION] Task Error:', error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    const location = locations[0];
+    if (location) {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token) return;
+
+        await fetch(`${API_URL}/couriers/location`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          }),
+        });
+        console.log('[BACKGROUND LOCATION] Sent:', location.coords.latitude, location.coords.longitude);
+      } catch (err) {
+        console.error('[BACKGROUND LOCATION] Network Error:', err);
+      }
+    }
+  }
+});
 
 // Bildirim handler ayarları
 // Bildirim handler ayarları
@@ -1745,47 +1781,6 @@ const MainApp = ({ user, onLogout }) => {
   const [ratingComment, setRatingComment] = useState('');
   const [optimizedRoute, setOptimizedRoute] = useState(null);
   const [showRoute, setShowRoute] = useState(false);
-
-  import * as TaskManager from 'expo-task-manager';
-
-  const LOCATION_TASK_NAME = 'background-location-task';
-
-  // Arka plan görevi tanımla (Component dışında olmalı)
-  TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
-    if (error) {
-      console.error('[BACKGROUND LOCATION] Task Error:', error);
-      return;
-    }
-    if (data) {
-      const { locations } = data;
-      const location = locations[0];
-      if (location) {
-        try {
-          const token = await AsyncStorage.getItem('token');
-          if (!token) return;
-
-          // API URL'yi App component dışından almak zor olabilir, hardcode veya global değişken kullanılabilir.
-          // Ancak en temizi fetch içinde tam URL kullanmaktır.
-          await fetch('https://kurye-api-production.up.railway.app/api/couriers/location', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-            }),
-          });
-          console.log('[BACKGROUND LOCATION] Sent:', location.coords.latitude, location.coords.longitude);
-        } catch (err) {
-          console.error('[BACKGROUND LOCATION] Network Error:', err);
-        }
-      }
-    }
-  });
-
-  // ... (App Component continues)
 
   // Konum takibi başlat (kurye/şef)
   const startLocationTracking = useCallback(async () => {
