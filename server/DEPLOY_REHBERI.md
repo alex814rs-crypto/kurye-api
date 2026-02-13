@@ -8,11 +8,11 @@
 Masaüstünde **PowerShell** aç ve şu komutları sırayla yaz:
 
 ```powershell
-cd "C:\Users\AdminA\Desktop\kurye uygulamasi\server"
+cd "C:\Users\AdminA\Desktop\kurye uygulamasi"
 npm install
 git init
 git add -A
-git commit -m "Kurye API server"
+git commit -m "Kurye API Consolidate"
 ```
 
 Sonra GitHub'da **yeni bir repo** oluştur (`kurye-api` adıyla) ve şu komutları çalıştır:
