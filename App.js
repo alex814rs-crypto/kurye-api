@@ -2039,6 +2039,7 @@ const MainApp = ({ user, onLogout }) => {
                 longitude: loc.coords.longitude,
               }),
             });
+            console.log('[LOCATION DEBUG] Location SENT successfully:', loc.coords.latitude, loc.coords.longitude);
           } catch (err) { console.error('Foreground location error:', err); }
         }
       );

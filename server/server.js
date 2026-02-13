@@ -885,6 +885,8 @@ app.post('/api/webhooks/getir/:businessCode', validateWebhookKey, async (req, re
 app.post('/api/couriers/location', authenticateToken, async (req, res) => {
   try {
     const { latitude, longitude } = req.body;
+    console.log(`[LOCATION UPDATE] User: ${req.user.name} (${req.user.id}) Lat: ${latitude} Lng: ${longitude}`);
+
     if (!latitude || !longitude) {
       return res.status(400).json({ success: false, message: 'Konum bilgisi gerekli' });
     }
@@ -903,6 +905,7 @@ app.post('/api/couriers/location', authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Kurye bulunamadı' });
     }
 
+    // Map'e ekle (Memory Cache)
     courierLocations.set(req.user.id, {
       courierId: req.user.id,
       name: courier.name,
@@ -914,6 +917,7 @@ app.post('/api/couriers/location', authenticateToken, async (req, res) => {
       updatedAt: new Date().toISOString(),
     });
 
+    console.log(`[LOCATION CACHE] Added to map. Total couriers: ${courierLocations.size}`);
     res.json({ success: true, message: 'Konum güncellendi' });
   } catch (err) {
     console.error('[LOCATION ERROR]', err.message);
@@ -930,12 +934,15 @@ app.get('/api/couriers/locations', authenticateToken, async (req, res) => {
 
     const locations = [];
     const now = Date.now();
-    const STALE_THRESHOLD = 5 * 60 * 1000; // 5 dakika
+    const STALE_THRESHOLD = 30 * 60 * 1000; // 30 dakika (Test için süreyi artırdım)
 
-    console.log(`[LOCATIONS DEBUG] Requestor: ${req.user.name} (${req.user.role}) Business: ${req.user.businessId}`);
-    console.log(`[LOCATIONS DEBUG] Total Map Size: ${courierLocations.size}`);
+    console.log(`[LOCATIONS FETCH] Requestor: ${req.user.name} Business: ${req.user.businessId}`);
+    console.log(`[LOCATIONS FETCH] Total in Map: ${courierLocations.size}`);
 
     courierLocations.forEach((loc, id) => {
+      // Debug için log
+      // console.log(`[CHECK] CourierBiz: ${loc.businessId} vs UserBiz: ${req.user.businessId}`);
+
       // İşletme filtresi (şef ve yönetici sadece kendi işletmesini görür)
       if ((req.user.role === 'chief' || req.user.role === 'manager') && loc.businessId !== req.user.businessId) return;
 
@@ -944,7 +951,7 @@ app.get('/api/couriers/locations', authenticateToken, async (req, res) => {
       locations.push({ ...loc, isStale });
     });
 
-    console.log(`[LOCATIONS DEBUG] Returned: ${locations.length}`);
+    console.log(`[LOCATIONS FETCH] Returning ${locations.length} locations`);
     res.json({ success: true, data: locations, count: locations.length });
   } catch (err) {
     console.error('[LOCATION ERROR]', err.message);
