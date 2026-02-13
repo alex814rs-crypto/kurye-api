@@ -889,7 +889,16 @@ app.post('/api/couriers/location', authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Konum bilgisi gerekli' });
     }
 
-    const courier = await Courier.findById(req.user.id).select('name phone role businessId');
+    const courier = await Courier.findByIdAndUpdate(
+      req.user.id,
+      {
+        latitude,
+        longitude,
+        lastUpdate: new Date()
+      },
+      { new: true }
+    ).select('name phone role businessId');
+
     if (!courier) {
       return res.status(404).json({ success: false, message: 'Kurye bulunamadı' });
     }
