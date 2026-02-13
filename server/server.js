@@ -1330,6 +1330,17 @@ app.post('/api/debug/seed', async (req, res) => {
 
 
 
+// DEBUG: Tüm kuryeleri ham olarak getir
+app.get('/api/debug/couriers', async (req, res) => {
+  try {
+    const couriers = await Courier.find({});
+    const memoryMap = Array.from(courierLocations.entries());
+    res.json({ success: true, dbCount: couriers.length, couriers, memoryMap });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============= STARTUP & ERROR HANDLING =============
 
 process.on('uncaughtException', (err) => {
